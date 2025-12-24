@@ -47,6 +47,9 @@ Put the plugin file in your project:
 
 (If you want to use it globally, place it under `~/.config/opencode/plugin/` instead.)
 
+> [!WARNING]
+> If you place the plugin in both the global directory (`~/.config/opencode/plugin/`) and the project directory (`.opencode/plugin/`), it may be loaded twice and send duplicate notifications. Choose either global or project placement, not both.
+
 ### 3) Create a Discord webhook
 
 - Recommended: create a webhook in a Discord Forum channel.

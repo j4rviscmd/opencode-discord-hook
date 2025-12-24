@@ -43,6 +43,9 @@ Discord の Forum チャンネル webhook を前提に、セッション開始�
 
 （グローバルに使いたい場合は `~/.config/opencode/plugin/` 配下でもOKです）
 
+> [!WARNING]
+> グローバル（`~/.config/opencode/plugin/`）とプロジェクト（`.opencode/plugin/`）の両方に配置すると、プラグインが二重に読み込まれて通知が重複します。どちらか一方にしてください。
+
 ### 3) Discord 側の準備
 
 - Discord の Forum チャンネルで Webhook を作成してください。
