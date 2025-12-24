@@ -1,0 +1,10 @@
+{
+  "type": "module",
+  "dependencies": {
+    "@opencode-ai/plugin": "1.0.193"
+  },
+  "devDependencies": {
+    "prettier": "^3.7.4",
+    "prettier-plugin-organize-imports": "^4.3.0"
+  }
+}
