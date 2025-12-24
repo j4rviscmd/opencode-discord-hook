@@ -143,10 +143,16 @@ export const DiscordNotificationPlugin: Plugin = async () => {
   const webhookUrl = getEnv('DISCORD_WEBHOOK_URL')
   const username = getEnv('DISCORD_WEBHOOK_USERNAME')
   const avatarUrl = getEnv('DISCORD_WEBHOOK_AVATAR_URL')
+
   const completeMentionRaw = (
     getEnv('DISCORD_WEBHOOK_COMPLETE_MENTION') ?? ''
   ).trim()
   const completeMention = completeMentionRaw || undefined
+
+  const permissionMentionRaw = (
+    getEnv('DISCORD_WEBHOOK_PERMISSION_MENTION') ?? ''
+  ).trim()
+  const permissionMention = permissionMentionRaw || undefined
 
   const excludeInputContextRaw = (
     getEnv('DISCORD_WEBHOOK_EXCLUDE_INPUT_CONTEXT') ?? '1'
@@ -320,14 +326,17 @@ export const DiscordNotificationPlugin: Plugin = async () => {
     else console.warn(`[opencode-discord-hook] ${message}`)
   }
 
-  function buildCompleteMention():
+  function buildMention(
+    mention: string | undefined,
+    nameForLog: string,
+  ):
     | { content?: string; allowed_mentions?: DiscordAllowedMentions }
     | undefined {
-    if (!completeMention) return undefined
+    if (!mention) return undefined
 
-    if (completeMention === '@everyone' || completeMention === '@here') {
+    if (mention === '@everyone' || mention === '@here') {
       return {
-        content: completeMention,
+        content: mention,
         allowed_mentions: {
           parse: ['everyone'],
         },
@@ -335,16 +344,28 @@ export const DiscordNotificationPlugin: Plugin = async () => {
     }
 
     warn(
-      `DISCORD_WEBHOOK_COMPLETE_MENTION is set but unsupported: ${completeMention}. Only @everyone/@here are supported.`,
+      `${nameForLog} is set but unsupported: ${mention}. Only @everyone/@here are supported.`,
     )
 
     // Avoid accidental pings if the value contains role/user mentions.
     return {
-      content: completeMention,
+      content: mention,
       allowed_mentions: {
         parse: [],
       },
     }
+  }
+
+  function buildCompleteMention():
+    | { content?: string; allowed_mentions?: DiscordAllowedMentions }
+    | undefined {
+    return buildMention(completeMention, 'DISCORD_WEBHOOK_COMPLETE_MENTION')
+  }
+
+  function buildPermissionMention():
+    | { content?: string; allowed_mentions?: DiscordAllowedMentions }
+    | undefined {
+    return buildMention(permissionMention, 'DISCORD_WEBHOOK_PERMISSION_MENTION')
   }
 
   function normalizeTodoContent(value: unknown): string {
@@ -480,7 +501,15 @@ export const DiscordNotificationPlugin: Plugin = async () => {
               ),
             }
 
-            enqueueToThread(sessionID, { embeds: [embed] })
+            const mention = buildPermissionMention()
+
+            enqueueToThread(sessionID, {
+              content: mention
+                ? `${mention.content} Permission required`
+                : undefined,
+              allowed_mentions: mention?.allowed_mentions,
+              embeds: [embed],
+            })
             if (shouldFlush(sessionID)) await flushPending(sessionID)
             return
           }

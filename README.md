@@ -63,6 +63,7 @@ Optional:
 - `DISCORD_WEBHOOK_USERNAME`: username for webhook posts
 - `DISCORD_WEBHOOK_AVATAR_URL`: avatar URL for webhook posts
 - `DISCORD_WEBHOOK_COMPLETE_MENTION`: mention to put in `session.idle` / `session.error` messages (only `@everyone` or `@here` supported; Forum webhooks may not actually ping due to Discord behavior)
+- `DISCORD_WEBHOOK_PERMISSION_MENTION`: mention to put in `permission.updated` messages (no fallback to `DISCORD_WEBHOOK_COMPLETE_MENTION`; only `@everyone` or `@here` supported; Forum webhooks may not actually ping due to Discord behavior)
 - `DISCORD_WEBHOOK_EXCLUDE_INPUT_CONTEXT`: when set to `1`, exclude "input context" (user text parts that start with `<file>`) from notifications (default: `1`; set to `0` to disable)
 
 ## Notes / behavior
@@ -78,6 +79,7 @@ Optional:
 - `permission.updated` / `session.idle` may be queued until the thread name becomes available.
 - `session.error` is skipped when `sessionID` is missing in the upstream payload.
 - `DISCORD_WEBHOOK_COMPLETE_MENTION=@everyone` (or `@here`) is included as message content, but Forum webhooks may not actually ping.
+- `DISCORD_WEBHOOK_PERMISSION_MENTION=@everyone` (or `@here`) is included as message content for `permission.updated`, but Forum webhooks may not actually ping.
 - `todo.updated` posts a checklist in the order received (`in_progress` = `[▶]`, `completed` = `[✓]`, `cancelled` excluded). Long lists may be truncated to fit embed constraints.
 - `message.updated` is not posted (tracked for role inference; may post a previously-held text part later).
 - `message.part.updated` policy:

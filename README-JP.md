@@ -59,6 +59,7 @@ Discord の Forum チャンネル webhook を前提に、セッション開始�
 - `DISCORD_WEBHOOK_USERNAME`: 投稿者名
 - `DISCORD_WEBHOOK_AVATAR_URL`: アイコン URL
 - `DISCORD_WEBHOOK_COMPLETE_MENTION`: `session.idle` / `session.error` の通知本文に付けるメンション（`@everyone` または `@here` のみ許容。Forum webhook の仕様上、ping は常に発生しない）
+- `DISCORD_WEBHOOK_PERMISSION_MENTION`: `permission.updated` の通知本文に付けるメンション（`DISCORD_WEBHOOK_COMPLETE_MENTION` へのフォールバックなし。`@everyone` または `@here` のみ許容。Forum webhook の仕様上、ping は常に発生しない）
 - `DISCORD_WEBHOOK_EXCLUDE_INPUT_CONTEXT`: `1` のとき input context（`<file>` から始まる user `text` part）を通知しない（デフォルト: `1` / `0` で無効化）
 
 ## 仕様メモ
@@ -74,6 +75,7 @@ Discord の Forum チャンネル webhook を前提に、セッション開始�
 - `permission.updated` / `session.idle` は thread がまだ作られていない場合、いったん通知をキューし、スレッド作成に必要な情報（スレッド名など）が揃ったタイミングで送信されることがあります（取りこぼし防止）。
 - `session.error` は upstream の payload で `sessionID` が optional のため、`sessionID` が無い場合は通知しません。
 - `DISCORD_WEBHOOK_COMPLETE_MENTION=@everyone`（または `@here`）を設定すると、通知本文にその文字列を含めて投稿します。ただし Forum webhook の仕様上、ping は常に発生しません（文字列として表示されるだけ）。
+- `DISCORD_WEBHOOK_PERMISSION_MENTION=@everyone`（または `@here`）を設定すると、`permission.updated` の通知本文にその文字列を含めて投稿します。ただし Forum webhook の仕様上、ping は常に発生しません（文字列として表示されるだけ）。
 - `todo.updated` は、`todos` を受信した順のままチェックリスト形式で通知します（`in_progress` は `[▶]`、`completed` は `[✓]`、`cancelled` は除外）。長い/大量の todo は Discord embed の制約に合わせて省略されることがあります（空の場合は `(no todos)` / 省略時は `...and more` を付与）。
 - `message.updated` は通知しません（role 判定用に追跡。role 未確定で保留した `text` part を後から通知することがあります）。
 - `message.part.updated` は以下の方針です。
