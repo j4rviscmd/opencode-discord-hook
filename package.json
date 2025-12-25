@@ -1,4 +1,5 @@
 {
+  "name": "opencode-discord-notify",
   "type": "module",
   "devDependencies": {
     "@opencode-ai/plugin": "1.0.194",

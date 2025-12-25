@@ -1,4 +1,4 @@
-# opencode-discord-hook
+# opencode-discord-notify
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![OpenCode Plugin](https://img.shields.io/badge/OpenCode-Plugin-4c8bf5)
