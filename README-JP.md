@@ -17,6 +17,24 @@ OpenCode のイベントを Discord Webhook に通知するプラグインです
 Discord の Forum チャンネル webhook を前提に、セッション開始時（または最初の通知タイミング）にスレッド（投稿）を作成して、その後の更新を同スレッドに流します。
 通常のテキストチャンネル webhook でも利用できます（その場合はスレッドが作れないため、チャンネルへ直投稿します）。
 
+## 使い方
+
+`opencode.json` / `opencode.jsonc` にプラグインを追加します。
+
+```jsonc
+{
+  "plugin": ["opencode-discord-notify@latest"],
+}
+```
+
+バージョン固定したい場合:
+
+```jsonc
+{
+  "plugin": ["opencode-discord-notify@0.1.0"],
+}
+```
+
 ## できること
 
 - `session.created`: セッション開始 → 開始通知をキュー（スレッド作成/送信は後続イベントで条件が揃ったタイミングで実行されることがある）

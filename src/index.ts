@@ -139,7 +139,7 @@ async function postDiscordWebhook(input: {
   }
 }
 
-export const DiscordNotificationPlugin: Plugin = async () => {
+const plugin: Plugin = async () => {
   const webhookUrl = getEnv('DISCORD_WEBHOOK_URL')
   const username = getEnv('DISCORD_WEBHOOK_USERNAME')
   const avatarUrl = getEnv('DISCORD_WEBHOOK_AVATAR_URL')
@@ -322,8 +322,8 @@ export const DiscordNotificationPlugin: Plugin = async () => {
 
   function warn(message: string, error?: unknown) {
     // Avoid crashing opencode; keep logs minimal
-    if (error) console.warn(`[opencode-discord-hook] ${message}`, error)
-    else console.warn(`[opencode-discord-hook] ${message}`)
+    if (error) console.warn(`[opencode-discord-notify] ${message}`, error)
+    else console.warn(`[opencode-discord-notify] ${message}`)
   }
 
   function buildMention(
@@ -753,3 +753,6 @@ export const DiscordNotificationPlugin: Plugin = async () => {
     },
   }
 }
+
+export default plugin
+export const DiscordNotificationPlugin = plugin

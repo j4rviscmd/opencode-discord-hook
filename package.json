@@ -1,9 +1,45 @@
 {
   "name": "opencode-discord-notify",
+  "version": "0.1.0",
+  "description": "A plugin that posts OpenCode events to a Discord webhook.",
+  "license": "MIT",
   "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "README-JP.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --out-dir dist --clean",
+    "format": "prettier . --write",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": ">=1.0.0"
+  },
   "devDependencies": {
     "@opencode-ai/plugin": "1.0.194",
     "prettier": "^3.7.4",
-    "prettier-plugin-organize-imports": "^4.3.0"
-  }
+    "prettier-plugin-organize-imports": "^4.3.0",
+    "tsup": "^8.5.0",
+    "typescript": "^5.8.3"
+  },
+  "keywords": [
+    "opencode",
+    "discord",
+    "webhook",
+    "plugin"
+  ]
 }

@@ -18,6 +18,24 @@ A plugin that posts OpenCode events to a Discord webhook.
 It is optimized for Discord Forum channel webhooks: it creates one thread per session (via `thread_name`) and posts subsequent updates to the same thread.
 It also works with regular text channel webhooks (in that case, it falls back to posting directly to the channel because threads cannot be created).
 
+## Usage
+
+Add this plugin to your `opencode.json` / `opencode.jsonc`:
+
+```jsonc
+{
+  "plugin": ["opencode-discord-notify@latest"],
+}
+```
+
+If you want to pin a version:
+
+```jsonc
+{
+  "plugin": ["opencode-discord-notify@0.1.0"],
+}
+```
+
 ## What it does
 
 - `session.created`: session started → queues a start notification (thread creation / sending may happen later when required info is available)
