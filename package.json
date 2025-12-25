@@ -45,5 +45,9 @@
     "discord",
     "webhook",
     "plugin"
-  ]
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/j4rviscmd/opencode-discord-notify"
+  }
 }
