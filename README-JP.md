@@ -20,24 +20,6 @@ OpenCode のイベントを Discord Webhook に通知するプラグインです
 Discord の Forum チャンネル webhook を前提に、セッション開始時（または最初の通知タイミング）にスレッド（投稿）を作成して、その後の更新を同スレッドに流します。
 通常のテキストチャンネル webhook でも利用できます（その場合はスレッドが作れないため、チャンネルへ直投稿します）。
 
-## 使い方
-
-`opencode.json` / `opencode.jsonc` にプラグインを追加します。
-
-```jsonc
-{
-  "plugin": ["opencode-discord-notify@latest"],
-}
-```
-
-バージョン固定したい場合:
-
-```jsonc
-{
-  "plugin": ["opencode-discord-notify@0.1.0"],
-}
-```
-
 ## できること
 
 - `session.created`: セッション開始 → 開始通知をキュー（スレッド作成/送信は後続イベントで条件が揃ったタイミングで実行されることがある）
@@ -50,29 +32,24 @@ Discord の Forum チャンネル webhook を前提に、セッション開始�
 
 ## セットアップ
 
-### 1) 依存のインストール
+### 1) プラグイン配置
 
-グローバルにインストールします。
+`opencode.json` / `opencode.jsonc` にプラグインを追加します。
 
-- `npm i -g @opencode-ai/plugin`
+OpenCode を再起動してください。
 
-### 2) プラグイン配置
+```jsonc
+{
+  "plugin": ["opencode-discord-notify@latest"],
+}
+```
 
-プロジェクト直下に以下のファイルを置きます。
-
-- `.opencode/plugin/discord-notification.ts`
-
-（グローバルに使いたい場合は `~/.config/opencode/plugin/` 配下でもOKです）
-
-> [!WARNING]
-> グローバル（`~/.config/opencode/plugin/`）とプロジェクト（`.opencode/plugin/`）の両方に配置すると、プラグインが二重に読み込まれて通知が重複します。どちらか一方にしてください。
-
-### 3) Discord 側の準備
+### 2) Discord 側の準備
 
 - Discord の Forum チャンネルで Webhook を作成してください。
 - テキストチャンネル webhook でも動きますが、スレッド作成（`thread_name`）は Forum 向けの挙動が前提です。
 
-### 4) 環境変数
+### 3) 環境変数
 
 必須:
 
@@ -116,9 +93,12 @@ Discord の Forum チャンネル webhook を前提に、セッション開始�
 
 ## 開発
 
+> [!WARNING]
+> グローバル（`~/.config/opencode/plugin/`）とプロジェクト（`.opencode/plugin/`）の両方に配置すると、プラグインが二重に読み込まれて通知が重複します。どちらか一方にしてください。
+
 - 依存のインストール: `npm i`
 - フォーマット: `npx prettier . --write`
-- プラグイン本体: `.opencode/plugin/discord-notification.ts`
+- プラグイン本体: `src/index.ts`
 
 ## 今後の展望（予定）
 
