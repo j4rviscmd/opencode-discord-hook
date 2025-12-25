@@ -46,14 +46,6 @@ Add this plugin to your `opencode.json` / `opencode.jsonc` and restart OpenCode.
 }
 ```
 
-Optional: pin a version instead of `@latest`.
-
-```jsonc
-{
-  "plugin": ["opencode-discord-notify@0.1.0"],
-}
-```
-
 ### 2) Create a Discord webhook
 
 - Recommended: create a webhook in a Discord Forum channel.
