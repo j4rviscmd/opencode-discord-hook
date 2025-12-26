@@ -721,6 +721,43 @@ const plugin: Plugin = async ({ client }) => {
             await flushPending(sessionID)
             return
           }
+          case 'permission.updated': {
+            const p = event.properties as any
+            const sessionID = p?.sessionID as string | undefined
+            if (!sessionID) return
+
+            const embed: DiscordEmbed = {
+              title: 'Permission required',
+              description: p?.title as string | undefined,
+              color: COLORS.warning,
+              timestamp: toIsoTimestamp(p?.time?.created),
+              fields: buildFields(
+                filterSendFields(
+                  [
+                    ['sessionID', sessionID],
+                    ['permissionID', p?.id],
+                    ['type', p?.type],
+                    ['pattern', p?.pattern],
+                    ['messageID', p?.messageID],
+                    ['callID', p?.callID],
+                  ],
+                  sendParams,
+                ),
+              ),
+            }
+
+            const mention = buildPermissionMention()
+
+            enqueueToThread(sessionID, {
+              content: mention
+                ? `${mention.content} Permission required`
+                : undefined,
+              allowed_mentions: mention?.allowed_mentions,
+              embeds: [embed],
+            })
+            if (shouldFlush(sessionID)) await flushPending(sessionID)
+            return
+          }
 
           case 'message.updated': {
             const info = (event.properties as any)?.info as any
