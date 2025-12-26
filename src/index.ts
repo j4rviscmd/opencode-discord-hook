@@ -438,7 +438,7 @@ const plugin: Plugin = async ({ client }) => {
   const waitOnRateLimitMs = 10_000
   const toastCooldownMs = 30_000
 
-  const sendParams = parseSendParams(getEnv('SEND_PARAMS'))
+  const sendParams = parseSendParams(getEnv('DISCORD_SEND_PARAMS'))
 
   const lastAlertAtByKey = new Map<string, number>()
 
@@ -465,6 +465,22 @@ const plugin: Plugin = async ({ client }) => {
     lastAlertAtByKey.set(key, now)
     await showToast({ title, message, variant })
   }
+
+  const MISSING_URL_KEY = 'discord_webhook_missing_url'
+  async function showMissingUrlToastOnce() {
+    const now = Date.now()
+    const last = lastAlertAtByKey.get(MISSING_URL_KEY)
+    if (last !== undefined && now - last < toastCooldownMs) return
+    lastAlertAtByKey.set(MISSING_URL_KEY, now)
+    await showToast({
+      title: 'Discord webhook not configured',
+      message:
+        'DISCORD_WEBHOOK_URL is not set. Please configure it to enable Discord notifications.',
+      variant: 'warning',
+    })
+  }
+
+  if (!webhookUrl) void showMissingUrlToastOnce()
 
   const postDeps: PostDiscordWebhookDeps = {
     showErrorAlert,
@@ -555,6 +571,12 @@ const plugin: Plugin = async ({ client }) => {
   }
 
   function enqueueToThread(sessionID: string, body: DiscordExecuteWebhookBody) {
+    if (!webhookUrl) {
+      // show a one-time warning to the user (non-blocking) and do not queue
+      void showMissingUrlToastOnce()
+      return
+    }
+
     const queue = pendingPostsBySession.get(sessionID) ?? []
     queue.push(body)
     pendingPostsBySession.set(sessionID, queue)
