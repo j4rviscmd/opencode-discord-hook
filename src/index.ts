@@ -441,6 +441,8 @@ const plugin: Plugin = async ({ client }) => {
   const sendParams = parseSendParams(getEnv('DISCORD_SEND_PARAMS'))
 
   const lastAlertAtByKey = new Map<string, number>()
+  // 既送 partID を保持
+  const sentTextPartIds = new Set<string>()
 
   const showToast: ShowToast = async ({ title, message, variant }) => {
     try {
@@ -641,6 +643,69 @@ const plugin: Plugin = async ({ client }) => {
     | undefined {
     return buildMention(permissionMention, 'DISCORD_WEBHOOK_PERMISSION_MENTION')
   }
+  /**
+   * Discord のメンションをエスケープする
+   * @param text
+   * @returns
+   */
+  function escapeDiscordMention(text: string): string {
+    return text.replace(/^@/g, '@\u200b')
+  }
+
+  async function handleTextPart(input: {
+    part: any
+    role: 'user' | 'assistant'
+    sessionID: string
+    messageID: string
+    replay?: boolean
+  }) {
+    const { part, role, sessionID, messageID, replay } = input
+    const partID = part?.id as string | undefined
+    if (!partID) return
+    if (!replay && role === 'assistant' && !part?.time?.end) return
+
+    if (sentTextPartIds.has(partID)) return
+    sentTextPartIds.add(partID)
+
+    const text = escapeDiscordMention(safeString(part?.text))
+
+    if (role === 'user' && excludeInputContext && isInputContextText(text)) {
+      return
+    }
+    if ((role === 'user' && text.trim() === '') || text.trim() === '(empty)') {
+      return
+    }
+
+    if (role === 'user' && !firstUserTextBySession.has(sessionID)) {
+      const normalized = normalizeThreadTitle(text)
+      if (normalized) firstUserTextBySession.set(sessionID, normalized)
+    }
+
+    const embed: DiscordEmbed = {
+      title: getTextPartEmbedTitle(role),
+      color: COLORS.info,
+      fields: buildFields(
+        filterSendFields(
+          [
+            ['sessionID', sessionID],
+            ['messageID', messageID],
+            ['partID', partID],
+            ['role', role],
+          ],
+          sendParams,
+        ),
+      ),
+      description: truncateText(text || '(empty)', 4096),
+    }
+
+    enqueueToThread(sessionID, { embeds: [embed] })
+
+    if (role === 'user') {
+      await flushPending(sessionID)
+    } else if (shouldFlush(sessionID)) {
+      await flushPending(sessionID)
+    }
+  }
 
   function setIfChanged(
     map: Map<string, string>,
@@ -691,75 +756,174 @@ const plugin: Plugin = async ({ client }) => {
 
             lastSessionInfo.set(sessionID, { title, shareUrl })
             enqueueToThread(sessionID, { embeds: [embed] })
-            if (shouldFlush(sessionID)) await flushPending(sessionID)
+            // NOTE:
+            // 「状態更新イベント」であり会話の区切りではない。
+            // ここで flush すると、assistant 最終発言の flush と競合し
+            // Agent says が二重送信されるため、enqueue のみに留める。
+            // if (shouldFlush(sessionID)) await flushPending(sessionID)
+            return
+          }
+
+          case 'permission.updated': {
+            const p = event.properties as any
+            const sessionID = p?.sessionID as string | undefined
+            if (!sessionID) return
+
+            const embed: DiscordEmbed = {
+              title: 'Permission required',
+              description: p?.title as string | undefined,
+              color: COLORS.warning,
+              timestamp: toIsoTimestamp(p?.time?.created),
+              fields: buildFields(
+                filterSendFields(
+                  [
+                    ['sessionID', sessionID],
+                    ['permissionID', p?.id],
+                    ['type', p?.type],
+                    ['pattern', p?.pattern],
+                    ['messageID', p?.messageID],
+                    ['callID', p?.callID],
+                  ],
+                  sendParams,
+                ),
+              ),
+            }
+
+            const mention = buildPermissionMention()
+
+            enqueueToThread(sessionID, {
+              content: mention ? `${mention.content}` : undefined,
+              allowed_mentions: mention?.allowed_mentions,
+              embeds: [embed],
+            })
+            // NOTE:
+            // 「状態更新イベント」であり会話の区切りではない。
+            // ここで flush すると、assistant 最終発言の flush と競合し
+            // Agent says が二重送信されるため、enqueue のみに留める。
+            // if (shouldFlush(sessionID)) await flushPending(sessionID)
+            return
+          }
+
+          case 'session.idle': {
+            const sessionID = (event.properties as any)?.sessionID as
+              | string
+              | undefined
+            if (!sessionID) return
+
+            const embed: DiscordEmbed = {
+              title: 'Session completed',
+              color: COLORS.success,
+              fields: buildFields(
+                filterSendFields(
+                  [['sessionID', sessionID]],
+                  withForcedSendParams(sendParams, ['sessionID']),
+                ),
+              ),
+            }
+
+            const mention = buildCompleteMention()
+            enqueueToThread(sessionID, {
+              content: mention ? `${mention.content}` : undefined,
+              allowed_mentions: mention?.allowed_mentions,
+              embeds: [embed],
+            })
+            // NOTE:
+            // 「状態更新イベント」であり会話の区切りではない。
+            // ここで flush すると、assistant 最終発言の flush と競合し
+            // Agent says が二重送信されるため、enqueue のみに留める。
+            // await flushPending(sessionID)
+            return
+          }
+
+          case 'session.error': {
+            const p = event.properties as any
+            const sessionID = p?.sessionID as string | undefined
+
+            const errorStr = safeString(p?.error)
+            const embed: DiscordEmbed = {
+              title: 'Session error',
+              color: COLORS.error,
+              description: errorStr
+                ? errorStr.length > 4096
+                  ? errorStr.slice(0, 4093) + '...'
+                  : errorStr
+                : undefined,
+              fields: buildFields(
+                filterSendFields(
+                  [['sessionID', sessionID]],
+                  withForcedSendParams(sendParams, [
+                    'sessionID',
+                    'projectID',
+                    'directory',
+                  ]),
+                ),
+              ),
+            }
+
+            if (!sessionID) return
+
+            const mention = buildCompleteMention()
+
+            enqueueToThread(sessionID, {
+              content: mention ? `$Session error` : undefined,
+              allowed_mentions: mention?.allowed_mentions,
+              embeds: [embed],
+            })
+            await flushPending(sessionID)
+            return
+          }
+
+          case 'todo.updated': {
+            const p = event.properties as any
+            const sessionID = p?.sessionID as string | undefined
+            if (!sessionID) return
+
+            const embed: DiscordEmbed = {
+              title: 'Todo updated',
+              color: COLORS.info,
+              fields: buildFields(
+                filterSendFields([['sessionID', sessionID]], sendParams),
+              ),
+              description: buildTodoChecklist(p?.todos),
+            }
+
+            enqueueToThread(sessionID, { embeds: [embed] })
+            // NOTE:
+            // 「状態更新イベント」であり会話の区切りではない。
+            // ここで flush すると、assistant 最終発言の flush と競合し
+            // Agent says が二重送信されるため、enqueue のみに留める。
+            // if (shouldFlush(sessionID)) await flushPending(sessionID)
             return
           }
 
           case 'message.updated': {
-            const info = (event.properties as any)?.info as any
+            const info = (event.properties as any)?.info
             const messageID = info?.id as string | undefined
             const role = info?.role as string | undefined
             if (!messageID) return
 
-            if (role === 'user' || role === 'assistant') {
-              messageRoleById.set(messageID, role)
-              const pendingParts = pendingTextPartsByMessageId.get(messageID)
-              if (pendingParts?.length) {
-                pendingTextPartsByMessageId.delete(messageID)
-                for (const pendingPart of pendingParts) {
-                  const sessionID = pendingPart?.sessionID as string | undefined
-                  const partID = pendingPart?.id as string | undefined
-                  const type = pendingPart?.type as string | undefined
-                  if (!sessionID || !partID || type !== 'text') continue
+            if (role !== 'user' && role !== 'assistant') return
+            messageRoleById.set(messageID, role)
 
-                  const text = safeString(pendingPart?.text)
+            const pendingParts = pendingTextPartsByMessageId.get(messageID)
+            if (!pendingParts?.length) return
 
-                  if (
-                    role === 'user' &&
-                    excludeInputContext &&
-                    isInputContextText(text)
-                  ) {
-                    const snapshot = JSON.stringify({
-                      type,
-                      role,
-                      skipped: 'input_context',
-                    })
-                    setIfChanged(new Map(), partID, snapshot)
-                    continue
-                  }
+            pendingTextPartsByMessageId.delete(messageID)
 
-                  if (
-                    role === 'user' &&
-                    !firstUserTextBySession.has(sessionID)
-                  ) {
-                    const normalized = normalizeThreadTitle(text)
-                    if (normalized)
-                      firstUserTextBySession.set(sessionID, normalized)
-                  }
+            for (const part of pendingParts) {
+              const sessionID = part?.sessionID
+              const partID = part?.id
+              if (!sessionID || !partID || part?.type !== 'text') continue
 
-                  const embed: DiscordEmbed = {
-                    title: getTextPartEmbedTitle(role as 'user' | 'assistant'),
-                    color: COLORS.info,
-                    fields: buildFields(
-                      filterSendFields(
-                        [
-                          ['sessionID', sessionID],
-                          ['messageID', messageID],
-                          ['partID', partID],
-                          ['role', role],
-                        ],
-                        sendParams,
-                      ),
-                    ),
-                    description: truncateText(text || '(empty)', 4096),
-                  }
-
-                  enqueueToThread(sessionID, { embeds: [embed] })
-                  if (role === 'user') await flushPending(sessionID)
-                  else if (shouldFlush(sessionID)) await flushPending(sessionID)
-                }
-              }
+              await handleTextPart({
+                part,
+                role,
+                sessionID,
+                messageID,
+                replay: true,
+              })
             }
+
             return
           }
 
@@ -781,57 +945,12 @@ const plugin: Plugin = async ({ client }) => {
               pendingTextPartsByMessageId.set(messageID, list)
               return
             }
-
-            if (type === 'text') {
-              if (role === 'assistant' && !part?.time?.end) return
-
-              const text = safeString(part?.text)
-
-              if (
-                role === 'user' &&
-                excludeInputContext &&
-                isInputContextText(text)
-              ) {
-                const snapshot = JSON.stringify({
-                  type,
-                  role,
-                  skipped: 'input_context',
-                })
-                setIfChanged(new Map(), partID, snapshot)
-                return
-              }
-
-              if (role === 'user' && !firstUserTextBySession.has(sessionID)) {
-                const normalized = normalizeThreadTitle(text)
-                if (normalized)
-                  firstUserTextBySession.set(sessionID, normalized)
-              }
-
-              const embed: DiscordEmbed = {
-                title: getTextPartEmbedTitle(role as 'user' | 'assistant'),
-                color: COLORS.info,
-                fields: buildFields(
-                  filterSendFields(
-                    [
-                      ['sessionID', sessionID],
-                      ['messageID', messageID],
-                      ['partID', partID],
-                      ['role', role],
-                    ],
-                    sendParams,
-                  ),
-                ),
-                description: truncateText(text || '(empty)', 4096),
-              }
-
-              enqueueToThread(sessionID, { embeds: [embed] })
-
-              if (role === 'user') {
-                await flushPending(sessionID)
-              } else if (shouldFlush(sessionID)) {
-                await flushPending(sessionID)
-              }
-            }
+            await handleTextPart({
+              part,
+              role,
+              sessionID,
+              messageID,
+            })
 
             return
           }
