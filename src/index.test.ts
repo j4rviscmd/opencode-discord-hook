@@ -11,19 +11,19 @@ const createClientMock = () => {
 }
 
 describe('__test__.toIsoTimestamp', () => {
-  it('number以外/非finiteはundefined', () => {
+  it('non-number or non-finite returns undefined', () => {
     expect(__test__.toIsoTimestamp('1')).toBeUndefined()
     expect(__test__.toIsoTimestamp(NaN)).toBeUndefined()
     expect(__test__.toIsoTimestamp(Infinity)).toBeUndefined()
   })
 
-  it('numberならISO文字列', () => {
+  it('returns ISO string for numeric input', () => {
     expect(__test__.toIsoTimestamp(0)).toBe('1970-01-01T00:00:00.000Z')
   })
 })
 
 describe('__test__.buildFields', () => {
-  it('空値はスキップし、1024文字制限する', () => {
+  it('skips empty values and limits to 1024 characters', () => {
     const long = 'a'.repeat(2000)
     const result = __test__.buildFields([
       ['empty', ''],
@@ -41,7 +41,7 @@ describe('__test__.buildFields', () => {
 })
 
 describe('__test__.buildMention', () => {
-  it('@everyone/@here は allowed_mentions.parse=["everyone"]', () => {
+  it('@everyone/@here yields allowed_mentions.parse=["everyone"]', () => {
     expect(__test__.buildMention('@everyone', 'x')).toEqual({
       content: '@everyone',
       allowed_mentions: { parse: ['everyone'] },
@@ -53,7 +53,7 @@ describe('__test__.buildMention', () => {
     })
   })
 
-  it('その他は parse=[] で誤爆を防ぐ', () => {
+  it('others use parse=[] to prevent accidental mentions', () => {
     expect(__test__.buildMention('<@123>', 'x')).toEqual({
       content: '<@123>',
       allowed_mentions: { parse: [] },
@@ -62,12 +62,12 @@ describe('__test__.buildMention', () => {
 })
 
 describe('__test__.buildTodoChecklist', () => {
-  it('空なら(no todos)', () => {
+  it('returns (no todos) when empty', () => {
     expect(__test__.buildTodoChecklist([])).toBe('> (no todos)')
     expect(__test__.buildTodoChecklist(undefined)).toBe('> (no todos)')
   })
 
-  it('cancelledを除外し、contentを200文字で切る', () => {
+  it('excludes cancelled items and truncates content to 200 characters', () => {
     const long = 'a'.repeat(250)
     const result = __test__.buildTodoChecklist([
       { status: 'cancelled', content: 'should-not-appear' },
@@ -79,7 +79,7 @@ describe('__test__.buildTodoChecklist', () => {
     expect(result).toContain('...')
   })
 
-  it('truncateされる場合は ...and more を付与する', () => {
+  it("appends '> ...and more' when truncated", () => {
     const long = 'a'.repeat(200)
     const many = Array.from({ length: 40 }, () => ({
       status: 'in_progress',
@@ -92,7 +92,7 @@ describe('__test__.buildTodoChecklist', () => {
 })
 
 describe('__test__.postDiscordWebhook', () => {
-  it('429は retry_after を待って1回リトライする', async () => {
+  it('on 429, waits retry_after then retries once', async () => {
     const fetchImpl = vi
       .fn()
       .mockResolvedValueOnce(
@@ -141,7 +141,7 @@ describe('plugin integration', () => {
     delete process.env.DISCORD_WEBHOOK_PERMISSION_MENTION
   })
 
-  it('Forum webhook: wait=true で thread 作成し thread_id で続行', async () => {
+  it('Forum webhook: creates thread when wait=true and continues with thread_id', async () => {
     const calls: Array<{ url: string; init: RequestInit }> = []
 
     vi.stubGlobal(
