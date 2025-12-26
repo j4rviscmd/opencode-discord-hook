@@ -168,42 +168,180 @@ function withQuery(
   return u.toString()
 }
 
-async function postDiscordWebhook(input: {
-  webhookUrl: string
-  threadId?: string
-  wait?: boolean
-  body: DiscordExecuteWebhookBody
-}): Promise<DiscordWebhookMessageResponse | undefined> {
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+type DiscordRateLimitResponse = {
+  retry_after?: number
+}
+
+type ToastVariant = 'info' | 'success' | 'warning' | 'error'
+
+type ShowToast = (input: {
+  title?: string
+  message: string
+  variant: ToastVariant
+}) => Promise<void>
+
+type MaybeAlertError = (input: {
+  key: string
+  title?: string
+  message: string
+  variant: ToastVariant
+}) => Promise<void>
+
+type PostDiscordWebhookDeps = {
+  showErrorAlert: boolean
+  maybeAlertError: MaybeAlertError
+  waitOnRateLimitMs: number
+  fetchImpl?: typeof fetch
+  sleepImpl?: (ms: number) => Promise<void>
+}
+
+/*
+  Test plan (issue #18 参照; 別ブランチ・別セッションで実装する)：
+
+  - 送信成功（HTTP 200/204相当）でトーストが出ないこと
+  - 429（rate limit）で `retry_after` があればそれを優先し、なければ 10 秒待機 → 1 回リトライ →
+    - 再度 429 の場合: warning トーストが出ること
+    - 200 の場合: トーストが出ないこと
+  - 500/403 など 429 以外のエラーで error トーストが出ること
+  - `DISCORD_WEBHOOK_SHOW_ERROR_ALERT=0` の場合は、上記のいずれでもトーストが出ないこと
+  - `flushPending()` がエラー時にキューを保持し、次回 flush で再送されること
+
+  実装方針（テスト容易性のためのDI）:
+  - `postDiscordWebhook(..., deps)` に `fetchImpl` / `sleepImpl` を注入可能にしてある。
+  - テストでは `fetchImpl` をモックし、ステータス別レスポンスを返す。
+  - `sleepImpl` は即時解決に差し替え、待機時間なしでリトライ経路を走らせる。
+*/
+
+async function postDiscordWebhook(
+  input: {
+    webhookUrl: string
+    threadId?: string
+    wait?: boolean
+    body: DiscordExecuteWebhookBody
+  },
+  deps: PostDiscordWebhookDeps,
+): Promise<DiscordWebhookMessageResponse | undefined> {
   const { webhookUrl, threadId, wait, body } = input
+
+  const fetchImpl = deps.fetchImpl ?? fetch
+  const sleepImpl = deps.sleepImpl ?? sleep
 
   const url = withQuery(webhookUrl, {
     thread_id: threadId,
     wait: wait ? 'true' : undefined,
   })
 
-  const response = await fetch(url, {
+  const requestInit: RequestInit = {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
     },
     body: JSON.stringify(body),
-  })
-
-  if (!response.ok) {
-    const text = await response.text().catch(() => '')
-    throw new Error(
-      `Discord webhook failed: ${response.status} ${response.statusText} ${text}`,
-    )
   }
 
+  const doRequest = async () => {
+    return await fetchImpl(url, requestInit)
+  }
+
+  const handleNonOk = async (response: Response) => {
+    const status = response.status
+    const statusText = response.statusText
+
+    const parseRetryAfterFromText = (text: string): number | undefined => {
+      if (!text) return undefined
+      try {
+        const json = JSON.parse(text) as DiscordRateLimitResponse
+        const value = json?.retry_after
+        if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+          return value
+        }
+      } catch {
+        // ignore
+      }
+
+      return undefined
+    }
+
+    const parseRetryAfterFromHeader = (
+      headers: Headers,
+    ): number | undefined => {
+      const raw = headers.get('Retry-After')
+      if (!raw) return undefined
+
+      const value = Number(raw)
+      if (!Number.isFinite(value) || value < 0) return undefined
+      return value
+    }
+
+    if (status === 429) {
+      const text = await response.text().catch(() => '')
+      const retryAfterSeconds =
+        parseRetryAfterFromText(text) ??
+        parseRetryAfterFromHeader(response.headers)
+
+      const waitMs =
+        retryAfterSeconds === undefined
+          ? deps.waitOnRateLimitMs
+          : Math.ceil(retryAfterSeconds * 1000)
+
+      await sleepImpl(waitMs)
+      const retryResponse = await doRequest()
+
+      if (!retryResponse.ok) {
+        if (deps.showErrorAlert) {
+          await deps.maybeAlertError({
+            key: `discord_webhook_error:${status}`,
+            title: 'Discord webhook rate-limited',
+            message: `Discord webhook returned 429 (rate limited). Waited ${Math.round(
+              waitMs / 1000,
+            )}s and retried, but it still failed.`,
+            variant: 'warning',
+          })
+        }
+
+        const retryText = await retryResponse.text().catch(() => '')
+        throw new Error(
+          `Discord webhook failed: ${retryResponse.status} ${retryResponse.statusText} ${retryText}`,
+        )
+      }
+
+      return retryResponse
+    }
+
+    if (deps.showErrorAlert) {
+      await deps.maybeAlertError({
+        key: `discord_webhook_error:${status}`,
+        title: 'Discord webhook error',
+        message: `Discord webhook failed: ${status} ${statusText}`,
+        variant: 'error',
+      })
+    }
+
+    const text = await response.text().catch(() => '')
+    throw new Error(`Discord webhook failed: ${status} ${statusText} ${text}`)
+  }
+
+  const response = await doRequest()
+  const finalResponse = response.ok ? response : await handleNonOk(response)
+
   if (!wait) return undefined
-  const json = (await response.json().catch(() => undefined)) as unknown
+
+  const json = (await finalResponse.json().catch(() => undefined)) as
+    | DiscordWebhookMessageResponse
+    | DiscordRateLimitResponse
+    | undefined
+
   if (!json || typeof json !== 'object') return undefined
 
   const channelId = (json as any).channel_id
   const messageId = (json as any).id
-  if (typeof channelId !== 'string' || typeof messageId !== 'string')
+  if (typeof channelId !== 'string' || typeof messageId !== 'string') {
     return undefined
+  }
 
   return {
     id: messageId,
@@ -217,7 +355,7 @@ type GlobalThisWithGuard = typeof globalThis & {
   [GLOBAL_GUARD_KEY]?: boolean
 }
 
-const plugin: Plugin = async () => {
+const plugin: Plugin = async ({ client }) => {
   const globalWithGuard = globalThis as GlobalThisWithGuard
   if (globalWithGuard[GLOBAL_GUARD_KEY]) {
     return {
@@ -245,7 +383,54 @@ const plugin: Plugin = async () => {
   ).trim()
   const excludeInputContext = excludeInputContextRaw !== '0'
 
+  const showErrorAlertRaw = (
+    getEnv('DISCORD_WEBHOOK_SHOW_ERROR_ALERT') ?? '1'
+  ).trim()
+  const showErrorAlert = showErrorAlertRaw !== '0'
+
+  const waitOnRateLimitMs = 10_000
+  const toastCooldownMs = 30_000
+
   const sendParams = parseSendParams(getEnv('SEND_PARAMS'))
+
+  const lastAlertAtByKey = new Map<string, number>()
+
+  const showToast: ShowToast = async ({ title, message, variant }) => {
+    try {
+      await client.tui.showToast({
+        body: {
+          title,
+          message,
+          variant,
+          duration: 8000,
+        },
+      } as any)
+    } catch {
+      // no-op
+    }
+  }
+
+  const maybeAlertError: MaybeAlertError = async ({
+    key,
+    title,
+    message,
+    variant,
+  }) => {
+    if (!showErrorAlert) return
+
+    const now = Date.now()
+    const last = lastAlertAtByKey.get(key)
+    if (last !== undefined && now - last < toastCooldownMs) return
+
+    lastAlertAtByKey.set(key, now)
+    await showToast({ title, message, variant })
+  }
+
+  const postDeps: PostDiscordWebhookDeps = {
+    showErrorAlert,
+    maybeAlertError,
+    waitOnRateLimitMs,
+  }
 
   const sessionToThread = new Map<string, string>()
   const threadCreateInFlight = new Map<string, Promise<string | undefined>>()
@@ -285,14 +470,17 @@ const plugin: Plugin = async () => {
 
   async function sendToChannel(body: DiscordExecuteWebhookBody) {
     if (!webhookUrl) return
-    await postDiscordWebhook({
-      webhookUrl,
-      body: {
-        ...body,
-        username,
-        avatar_url: avatarUrl,
+    await postDiscordWebhook(
+      {
+        webhookUrl,
+        body: {
+          ...body,
+          username,
+          avatar_url: avatarUrl,
+        },
       },
-    })
+      postDeps,
+    )
   }
 
   function enqueueToThread(sessionID: string, body: DiscordExecuteWebhookBody) {
@@ -326,39 +514,54 @@ const plugin: Plugin = async () => {
     if (inflight) return await inflight
 
     const create = (async () => {
-      const queue = pendingPostsBySession.get(sessionID) ?? []
-      const first = queue.shift()
-
-      if (queue.length) pendingPostsBySession.set(sessionID, queue)
-      else pendingPostsBySession.delete(sessionID)
-
+      const queue = pendingPostsBySession.get(sessionID)
+      const first = queue?.[0]
       if (!first) return undefined
 
       const threadName = buildThreadName(sessionID)
 
       try {
-        const res = await postDiscordWebhook({
-          webhookUrl,
-          wait: true,
-          body: {
-            ...first,
-            thread_name: threadName,
-            username,
-            avatar_url: avatarUrl,
+        const res = await postDiscordWebhook(
+          {
+            webhookUrl,
+            wait: true,
+            body: {
+              ...first,
+              thread_name: threadName,
+              username,
+              avatar_url: avatarUrl,
+            },
           },
-        })
+          postDeps,
+        )
 
         if (res?.channel_id) {
           sessionToThread.set(sessionID, res.channel_id)
+
+          const nextQueue = pendingPostsBySession.get(sessionID)
+          if (nextQueue?.[0] === first) {
+            nextQueue.shift()
+            if (nextQueue.length)
+              pendingPostsBySession.set(sessionID, nextQueue)
+            else pendingPostsBySession.delete(sessionID)
+          }
+
           return res.channel_id
         }
 
-        warn(`failed to capture thread_id for session ${sessionID}`)
         return undefined
-      } catch (e) {
-        // If the webhook is not a forum channel, thread creation may fail.
-        // Fall back to posting to the channel to avoid losing notifications.
+      } catch {
+        // Forum webhook 以外だと thread 作成が失敗する可能性がある。
+        // 通知ロスト回避のため、先頭要素のみチャンネル直投稿にフォールバック。
         await sendToChannel(first)
+
+        const nextQueue = pendingPostsBySession.get(sessionID)
+        if (nextQueue?.[0] === first) {
+          nextQueue.shift()
+          if (nextQueue.length) pendingPostsBySession.set(sessionID, nextQueue)
+          else pendingPostsBySession.delete(sessionID)
+        }
+
         return undefined
       } finally {
         threadCreateInFlight.delete(sessionID)
@@ -375,29 +578,45 @@ const plugin: Plugin = async () => {
 
       const threadId =
         sessionToThread.get(sessionID) ?? (await ensureThread(sessionID))
+
       const queue = pendingPostsBySession.get(sessionID)
       if (!queue?.length) return
 
+      let sentCount = 0
       try {
         if (threadId) {
           for (const body of queue) {
-            await postDiscordWebhook({
-              webhookUrl,
-              threadId,
-              body: {
-                ...body,
-                username,
-                avatar_url: avatarUrl,
+            await postDiscordWebhook(
+              {
+                webhookUrl,
+                threadId,
+                body: {
+                  ...body,
+                  username,
+                  avatar_url: avatarUrl,
+                },
               },
-            })
+              postDeps,
+            )
+            sentCount += 1
           }
         } else {
           for (const body of queue) {
             await sendToChannel(body)
+            sentCount += 1
           }
         }
-      } finally {
+
         pendingPostsBySession.delete(sessionID)
+      } catch (e) {
+        const current = pendingPostsBySession.get(sessionID)
+        if (!current?.length) throw e
+
+        const rest = current.slice(sentCount)
+        if (rest.length) pendingPostsBySession.set(sessionID, rest)
+        else pendingPostsBySession.delete(sessionID)
+
+        throw e
       }
     })
   }
@@ -406,12 +625,6 @@ const plugin: Plugin = async () => {
     return (
       sessionToThread.has(sessionID) || firstUserTextBySession.has(sessionID)
     )
-  }
-
-  function warn(message: string, error?: unknown) {
-    // Avoid crashing opencode; keep logs minimal
-    if (error) console.warn(`[opencode-discord-notify] ${message}`, error)
-    else console.warn(`[opencode-discord-notify] ${message}`)
   }
 
   function buildMention(
@@ -430,10 +643,6 @@ const plugin: Plugin = async () => {
         },
       }
     }
-
-    warn(
-      `${nameForLog} is set but unsupported: ${mention}. Only @everyone/@here are supported.`,
-    )
 
     // Avoid accidental pings if the value contains role/user mentions.
     return {
@@ -522,10 +731,6 @@ const plugin: Plugin = async () => {
     }
 
     return description
-  }
-
-  if (!webhookUrl) {
-    warn('DISCORD_WEBHOOK_URL is not set; plugin will be a no-op')
   }
 
   return {
@@ -854,8 +1059,8 @@ const plugin: Plugin = async () => {
           default:
             return
         }
-      } catch (e) {
-        warn(`failed handling event ${event.type}`, e)
+      } catch {
+        // no-op
       }
     },
   }

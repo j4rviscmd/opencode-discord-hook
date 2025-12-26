@@ -64,11 +64,14 @@ Optional:
 - `DISCORD_WEBHOOK_COMPLETE_MENTION`: mention to put in `session.idle` / `session.error` messages (only `@everyone` or `@here` supported; Forum webhooks may not actually ping due to Discord behavior)
 - `DISCORD_WEBHOOK_PERMISSION_MENTION`: mention to put in `permission.updated` messages (no fallback to `DISCORD_WEBHOOK_COMPLETE_MENTION`; only `@everyone` or `@here` supported; Forum webhooks may not actually ping due to Discord behavior)
 - `DISCORD_WEBHOOK_EXCLUDE_INPUT_CONTEXT`: when set to `1`, exclude "input context" (user `text` parts that start with `<file>`) from notifications (default: `1`; set to `0` to disable)
+- `DISCORD_WEBHOOK_SHOW_ERROR_ALERT`: when set to `1`, show an OpenCode TUI toast when Discord webhook requests fail (includes 429). (default: `1`; set to `0` to disable)
 - `SEND_PARAMS`: comma-separated list of keys to include as embed fields. Allowed keys: `sessionID`, `permissionID`, `type`, `pattern`, `messageID`, `callID`, `partID`, `role`, `directory`, `projectID`. If unset, empty, or containing only empty elements, all keys are selected. `session.created` always includes `sessionID`, `projectID`, `directory` regardless.
 
 ## Notes / behavior
 
-- If `DISCORD_WEBHOOK_URL` is not set, it becomes a no-op (logs a warning only).
+- If `DISCORD_WEBHOOK_URL` is not set, it becomes a no-op.
+- If a webhook request fails, it may show an OpenCode TUI toast (controlled by `DISCORD_WEBHOOK_SHOW_ERROR_ALERT`).
+- On HTTP 429, it waits `retry_after` seconds if provided (otherwise ~10s) and retries once; if it still fails, it shows a warning toast.
 - For Forum thread creation, it appends `?wait=true` and uses `channel_id` in the response as the thread ID.
 - `thread_name` priority order (max 100 chars):
   1. first user `text`
