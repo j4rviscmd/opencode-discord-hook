@@ -438,7 +438,7 @@ const plugin: Plugin = async ({ client }) => {
   const waitOnRateLimitMs = 10_000
   const toastCooldownMs = 30_000
 
-  const sendParams = parseSendParams(getEnv('SEND_PARAMS'))
+  const sendParams = parseSendParams(getEnv('DISCORD_SEND_PARAMS'))
 
   const lastAlertAtByKey = new Map<string, number>()
 
