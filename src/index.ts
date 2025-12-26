@@ -816,70 +816,17 @@ const plugin: Plugin = async ({ client }) => {
           }
 
           case 'message.updated': {
-            const info = (event.properties as any)?.info as any
+            const info = (event.properties as any)?.info
             const messageID = info?.id as string | undefined
             const role = info?.role as string | undefined
             if (!messageID) return
 
+            // role のみ確定させる
             if (role === 'user' || role === 'assistant') {
               messageRoleById.set(messageID, role)
-              const pendingParts = pendingTextPartsByMessageId.get(messageID)
-              if (pendingParts?.length) {
-                pendingTextPartsByMessageId.delete(messageID)
-                for (const pendingPart of pendingParts) {
-                  const sessionID = pendingPart?.sessionID as string | undefined
-                  const partID = pendingPart?.id as string | undefined
-                  const type = pendingPart?.type as string | undefined
-                  if (!sessionID || !partID || type !== 'text') continue
-
-                  const text = safeString(pendingPart?.text)
-
-                  if (
-                    role === 'user' &&
-                    excludeInputContext &&
-                    isInputContextText(text)
-                  ) {
-                    const snapshot = JSON.stringify({
-                      type,
-                      role,
-                      skipped: 'input_context',
-                    })
-                    setIfChanged(new Map(), partID, snapshot)
-                    continue
-                  }
-
-                  if (
-                    role === 'user' &&
-                    !firstUserTextBySession.has(sessionID)
-                  ) {
-                    const normalized = normalizeThreadTitle(text)
-                    if (normalized)
-                      firstUserTextBySession.set(sessionID, normalized)
-                  }
-
-                  const embed: DiscordEmbed = {
-                    title: getTextPartEmbedTitle(role as 'user' | 'assistant'),
-                    color: COLORS.info,
-                    fields: buildFields(
-                      filterSendFields(
-                        [
-                          ['sessionID', sessionID],
-                          ['messageID', messageID],
-                          ['partID', partID],
-                          ['role', role],
-                        ],
-                        sendParams,
-                      ),
-                    ),
-                    description: truncateText(text || '(empty)', 4096),
-                  }
-
-                  enqueueToThread(sessionID, { embeds: [embed] })
-                  if (role === 'user') await flushPending(sessionID)
-                  else if (shouldFlush(sessionID)) await flushPending(sessionID)
-                }
-              }
             }
+
+            // ❌ pendingTextPartsByMessageId を処理しない
             return
           }
 
