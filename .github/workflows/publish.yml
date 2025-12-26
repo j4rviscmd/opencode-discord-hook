@@ -46,6 +46,10 @@ jobs:
         if: steps.npm.outputs.exists == 'false' && success()
         run: npm ci
 
+      - name: Test
+        if: steps.npm.outputs.exists == 'false' && success()
+        run: npm test
+
       - name: Publish
         if: steps.npm.outputs.exists == 'false' && success()
         run: npm publish --provenance --access public

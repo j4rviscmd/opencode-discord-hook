@@ -172,6 +172,85 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+function truncateText(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value
+  if (maxLength <= 3) return value.slice(0, maxLength)
+  return value.slice(0, maxLength - 3) + '...'
+}
+
+function buildMention(
+  mention: string | undefined,
+  nameForLog: string,
+): { content?: string; allowed_mentions?: DiscordAllowedMentions } | undefined {
+  void nameForLog
+
+  if (!mention) return undefined
+
+  if (mention === '@everyone' || mention === '@here') {
+    return {
+      content: mention,
+      allowed_mentions: {
+        parse: ['everyone'],
+      },
+    }
+  }
+
+  // Avoid accidental pings if the value contains role/user mentions.
+  return {
+    content: mention,
+    allowed_mentions: {
+      parse: [],
+    },
+  }
+}
+
+function normalizeTodoContent(value: unknown): string {
+  return safeString(value).replace(/\s+/g, ' ').trim()
+}
+
+function buildTodoChecklist(todos: unknown): string {
+  const maxDescription = 4096
+  const items = Array.isArray(todos) ? todos : []
+
+  let matchCount = 0
+  let description = ''
+  let truncated = false
+
+  for (const item of items) {
+    const status = (item as any)?.status as string | undefined
+    if (status === 'cancelled') continue
+
+    const content = normalizeTodoContent((item as any)?.content)
+    if (!content) continue
+
+    const marker =
+      status === 'completed' ? '[✓]' : status === 'in_progress' ? '[▶]' : '[ ]'
+    const line = `> ${marker} ${truncateText(content, 200)}`
+
+    const nextChunk = (description ? '\n' : '') + line
+    if (description.length + nextChunk.length > maxDescription) {
+      truncated = true
+      break
+    }
+
+    description += nextChunk
+    matchCount += 1
+  }
+
+  if (!description) {
+    return '> (no todos)'
+  }
+
+  if (truncated || matchCount < items.length) {
+    const moreLine = `${description ? '\n' : ''}> ...and more`
+    if (description.length + moreLine.length <= maxDescription) {
+      description += moreLine
+    }
+  }
+
+  return description
+}
+
 type DiscordRateLimitResponse = {
   retry_after?: number
 }
@@ -627,32 +706,6 @@ const plugin: Plugin = async ({ client }) => {
     )
   }
 
-  function buildMention(
-    mention: string | undefined,
-    nameForLog: string,
-  ):
-    | { content?: string; allowed_mentions?: DiscordAllowedMentions }
-    | undefined {
-    if (!mention) return undefined
-
-    if (mention === '@everyone' || mention === '@here') {
-      return {
-        content: mention,
-        allowed_mentions: {
-          parse: ['everyone'],
-        },
-      }
-    }
-
-    // Avoid accidental pings if the value contains role/user mentions.
-    return {
-      content: mention,
-      allowed_mentions: {
-        parse: [],
-      },
-    }
-  }
-
   function buildCompleteMention():
     | { content?: string; allowed_mentions?: DiscordAllowedMentions }
     | undefined {
@@ -665,16 +718,6 @@ const plugin: Plugin = async ({ client }) => {
     return buildMention(permissionMention, 'DISCORD_WEBHOOK_PERMISSION_MENTION')
   }
 
-  function normalizeTodoContent(value: unknown): string {
-    return safeString(value).replace(/\s+/g, ' ').trim()
-  }
-
-  function truncateText(value: string, maxLength: number): string {
-    if (value.length <= maxLength) return value
-    if (maxLength <= 3) return value.slice(0, maxLength)
-    return value.slice(0, maxLength - 3) + '...'
-  }
-
   function setIfChanged(
     map: Map<string, string>,
     key: string,
@@ -684,53 +727,6 @@ const plugin: Plugin = async ({ client }) => {
     if (prev === next) return false
     map.set(key, next)
     return true
-  }
-
-  function buildTodoChecklist(todos: unknown): string {
-    const maxDescription = 4096
-    const items = Array.isArray(todos) ? todos : []
-
-    let matchCount = 0
-    let description = ''
-    let truncated = false
-
-    for (const item of items) {
-      const status = (item as any)?.status as string | undefined
-      if (status === 'cancelled') continue
-
-      const content = normalizeTodoContent((item as any)?.content)
-      if (!content) continue
-
-      const marker =
-        status === 'completed'
-          ? '[✓]'
-          : status === 'in_progress'
-            ? '[▶]'
-            : '[ ]'
-      const line = `> ${marker} ${truncateText(content, 200)}`
-
-      const nextChunk = (description ? '\n' : '') + line
-      if (description.length + nextChunk.length > maxDescription) {
-        truncated = true
-        break
-      }
-
-      description += nextChunk
-      matchCount += 1
-    }
-
-    if (!description) {
-      return '> (no todos)'
-    }
-
-    if (truncated || matchCount < items.length) {
-      const moreLine = `${description ? '\n' : ''}> ...and more`
-      if (description.length + moreLine.length <= maxDescription) {
-        description += moreLine
-      }
-    }
-
-    return description
   }
 
   return {
@@ -1064,6 +1060,14 @@ const plugin: Plugin = async ({ client }) => {
       }
     },
   }
+}
+
+export const __test__ = {
+  buildMention,
+  buildTodoChecklist,
+  buildFields,
+  toIsoTimestamp,
+  postDiscordWebhook,
 }
 
 export default plugin

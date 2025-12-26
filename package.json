@@ -27,6 +27,7 @@
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts --out-dir dist --clean",
     "format": "prettier . --write",
+    "test": "vitest run",
     "prepublishOnly": "npm run build"
   },
   "peerDependencies": {
@@ -38,7 +39,8 @@
     "prettier": "^3.7.4",
     "prettier-plugin-organize-imports": "^4.3.0",
     "tsup": "^8.5.0",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^4.0.16"
   },
   "keywords": [
     "opencode",
