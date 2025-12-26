@@ -115,6 +115,10 @@ function filterSendFields(
   })
 }
 
+function getTextPartEmbedTitle(role: 'user' | 'assistant'): string {
+  return role === 'user' ? 'User says' : 'Agent says'
+}
+
 function withForcedSendParams(
   base: Set<SendParamKey>,
   forced: SendParamKey[],
@@ -738,10 +742,7 @@ const plugin: Plugin = async () => {
                   }
 
                   const embed: DiscordEmbed = {
-                    title:
-                      role === 'user'
-                        ? 'Message part updated: text (user)'
-                        : 'Message part updated: text (assistant)',
+                    title: getTextPartEmbedTitle(role),
                     color: COLORS.info,
                     fields: buildFields(
                       filterSendFields(
@@ -817,10 +818,7 @@ const plugin: Plugin = async () => {
               }
 
               const embed: DiscordEmbed = {
-                title:
-                  role === 'user'
-                    ? 'Message part updated: text (user)'
-                    : 'Message part updated: text (assistant)',
+                title: getTextPartEmbedTitle(role),
                 color: COLORS.info,
                 fields: buildFields(
                   filterSendFields(

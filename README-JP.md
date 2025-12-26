@@ -82,6 +82,7 @@ OpenCode を再起動してください。
 - `message.updated` は通知しません（role 判定用に追跡。role 未確定で保留した `text` part を後から通知することがあります）。
 - `message.part.updated` は以下の方針です。
   - `text`: user は即時通知。assistant は `part.time.end` がある確定時のみ通知（ストリーミング途中更新は通知しない）
+    - embed タイトルは `User says` / `Agent says` です
   - `tool`: 通知しない
   - `reasoning`: 通知しない（内部思考が含まれる可能性があるため）
 - `SEND_PARAMS` の制御対象は embed の fields のみです（title/description/content/timestamp などは対象外）。また `share` は fields としては送りません（Session started の embed URL には `shareUrl` を使います）。

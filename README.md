@@ -84,6 +84,7 @@ Optional:
 - `message.updated` is not posted (tracked for role inference; may post a previously-held text part later).
 - `message.part.updated` policy:
   - `text`: user is posted immediately; assistant is posted only when finalized (when `part.time.end` exists)
+    - Embed titles are `User says` / `Agent says`
   - `tool`: not posted
   - `reasoning`: not posted (to avoid exposing internal thoughts)
 - `SEND_PARAMS` controls embed fields only (it does not affect title/description/content/timestamp). `share` is not an embed field (but Session started uses `shareUrl` as the embed URL).
