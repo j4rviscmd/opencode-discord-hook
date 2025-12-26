@@ -714,9 +714,7 @@ const plugin: Plugin = async ({ client }) => {
 
             const mention = buildCompleteMention()
             enqueueToThread(sessionID, {
-              content: mention
-                ? `${mention.content} Session completed`
-                : undefined,
+              content: mention ? `${mention.content}` : undefined,
               allowed_mentions: mention?.allowed_mentions,
               embeds: [embed],
             })
