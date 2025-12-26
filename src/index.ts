@@ -664,6 +664,9 @@ const plugin: Plugin = async ({ client }) => {
     if (role === 'user' && excludeInputContext && isInputContextText(text)) {
       return
     }
+    if ((role === 'user' && text.trim() === '') || text.trim() === '(empty)') {
+      return
+    }
 
     if (role === 'user' && !firstUserTextBySession.has(sessionID)) {
       const normalized = normalizeThreadTitle(text)
