@@ -62,6 +62,7 @@ OpenCode を再起動してください。
 - `DISCORD_WEBHOOK_COMPLETE_MENTION`: `session.idle` / `session.error` の通知本文に付けるメンション（`@everyone` または `@here` のみ許容。Forum webhook の仕様上、ping は常に発生しない）
 - `DISCORD_WEBHOOK_PERMISSION_MENTION`: `permission.updated` の通知本文に付けるメンション（`DISCORD_WEBHOOK_COMPLETE_MENTION` へのフォールバックなし。`@everyone` または `@here` のみ許容。Forum webhook の仕様上、ping は常に発生しない）
 - `DISCORD_WEBHOOK_EXCLUDE_INPUT_CONTEXT`: `1` のとき input context（`<file>` から始まる user `text` part）を通知しない（デフォルト: `1` / `0` で無効化）
+- `SEND_PARAMS`: embed の fields として送るキーをカンマ区切りで指定。指定可能キー: `sessionID`, `permissionID`, `type`, `pattern`, `messageID`, `callID`, `partID`, `role`, `directory`, `projectID`。未設定・空文字・空要素のみの場合は全て選択。`session.created` は `SEND_PARAMS` に関わらず `sessionID`, `projectID`, `directory` を必ず含みます。
 
 ## 仕様メモ
 
@@ -81,8 +82,10 @@ OpenCode を再起動してください。
 - `message.updated` は通知しません（role 判定用に追跡。role 未確定で保留した `text` part を後から通知することがあります）。
 - `message.part.updated` は以下の方針です。
   - `text`: user は即時通知。assistant は `part.time.end` がある確定時のみ通知（ストリーミング途中更新は通知しない）
+    - embed タイトルは `User says` / `Agent says` です
   - `tool`: 通知しない
   - `reasoning`: 通知しない（内部思考が含まれる可能性があるため）
+- `SEND_PARAMS` の制御対象は embed の fields のみです（title/description/content/timestamp などは対象外）。また `share` は fields としては送りません（Session started の embed URL には `shareUrl` を使います）。
 
 ## 動作確認（手動）
 
