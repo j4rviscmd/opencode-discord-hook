@@ -34,6 +34,33 @@ type SessionInfo = {
   shareUrl?: string
 }
 
+type SendParamKey =
+  | 'sessionID'
+  | 'permissionID'
+  | 'type'
+  | 'pattern'
+  | 'messageID'
+  | 'callID'
+  | 'partID'
+  | 'role'
+  | 'directory'
+  | 'projectID'
+
+const SEND_PARAM_KEYS: SendParamKey[] = [
+  'sessionID',
+  'permissionID',
+  'type',
+  'pattern',
+  'messageID',
+  'callID',
+  'partID',
+  'role',
+  'directory',
+  'projectID',
+]
+
+const SEND_PARAM_KEY_SET = new Set<SendParamKey>(SEND_PARAM_KEYS)
+
 const COLORS = {
   info: 0x5865f2,
   success: 0x57f287,
@@ -74,6 +101,29 @@ function buildFields(
   return result.length ? result : undefined
 }
 
+function isSendParamKey(value: string): value is SendParamKey {
+  return SEND_PARAM_KEY_SET.has(value as SendParamKey)
+}
+
+function filterSendFields(
+  fields: Array<[string, unknown]>,
+  allowed: Set<SendParamKey>,
+): Array<[string, unknown]> {
+  return fields.filter(([name]) => {
+    if (!isSendParamKey(name)) return false
+    return allowed.has(name)
+  })
+}
+
+function withForcedSendParams(
+  base: Set<SendParamKey>,
+  forced: SendParamKey[],
+): Set<SendParamKey> {
+  const next = new Set(base)
+  for (const key of forced) next.add(key)
+  return next
+}
+
 function getEnv(name: string): string | undefined {
   try {
     // Bun and Node
@@ -82,6 +132,24 @@ function getEnv(name: string): string | undefined {
   } catch {
     return undefined
   }
+}
+
+function parseSendParams(raw: string | undefined): Set<SendParamKey> {
+  if (raw === undefined) return new Set(SEND_PARAM_KEYS)
+
+  const tokens = raw
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean)
+
+  if (!tokens.length) return new Set(SEND_PARAM_KEYS)
+
+  const result = new Set<SendParamKey>()
+  for (const token of tokens) {
+    if (!SEND_PARAM_KEY_SET.has(token as SendParamKey)) continue
+    result.add(token as SendParamKey)
+  }
+  return result
 }
 
 function withQuery(
@@ -172,6 +240,8 @@ const plugin: Plugin = async () => {
     getEnv('DISCORD_WEBHOOK_EXCLUDE_INPUT_CONTEXT') ?? '1'
   ).trim()
   const excludeInputContext = excludeInputContextRaw !== '0'
+
+  const sendParams = parseSendParams(getEnv('SEND_PARAMS'))
 
   const sessionToThread = new Map<string, string>()
   const threadCreateInFlight = new Map<string, Promise<string | undefined>>()
@@ -476,12 +546,19 @@ const plugin: Plugin = async () => {
               color: COLORS.info,
               timestamp: createdAt,
               fields: buildFields(
-                [
-                  ['sessionID', sessionID],
-                  ['projectID', projectID],
-                  ['directory', directory],
-                  ['share', shareUrl],
-                ],
+                filterSendFields(
+                  [
+                    ['sessionID', sessionID],
+                    ['projectID', projectID],
+                    ['directory', directory],
+                    ['share', shareUrl],
+                  ],
+                  withForcedSendParams(sendParams, [
+                    'sessionID',
+                    'projectID',
+                    'directory',
+                  ]),
+                ),
                 false,
               ),
             }
@@ -503,14 +580,17 @@ const plugin: Plugin = async () => {
               color: COLORS.warning,
               timestamp: toIsoTimestamp(p?.time?.created),
               fields: buildFields(
-                [
-                  ['sessionID', sessionID],
-                  ['permissionID', p?.id],
-                  ['type', p?.type],
-                  ['pattern', p?.pattern],
-                  ['messageID', p?.messageID],
-                  ['callID', p?.callID],
-                ],
+                filterSendFields(
+                  [
+                    ['sessionID', sessionID],
+                    ['permissionID', p?.id],
+                    ['type', p?.type],
+                    ['pattern', p?.pattern],
+                    ['messageID', p?.messageID],
+                    ['callID', p?.callID],
+                  ],
+                  sendParams,
+                ),
                 false,
               ),
             }
@@ -537,7 +617,10 @@ const plugin: Plugin = async () => {
             const embed: DiscordEmbed = {
               title: 'Session completed',
               color: COLORS.success,
-              fields: buildFields([['sessionID', sessionID]], false),
+              fields: buildFields(
+                filterSendFields([['sessionID', sessionID]], sendParams),
+                false,
+              ),
             }
 
             const mention = buildCompleteMention()
@@ -566,7 +649,10 @@ const plugin: Plugin = async () => {
                   ? errorStr.slice(0, 4093) + '...'
                   : errorStr
                 : undefined,
-              fields: buildFields([['sessionID', sessionID]], false),
+              fields: buildFields(
+                filterSendFields([['sessionID', sessionID]], sendParams),
+                false,
+              ),
             }
 
             if (!sessionID) return
@@ -590,7 +676,10 @@ const plugin: Plugin = async () => {
             const embed: DiscordEmbed = {
               title: 'Todo updated',
               color: COLORS.info,
-              fields: buildFields([['sessionID', sessionID]], false),
+              fields: buildFields(
+                filterSendFields([['sessionID', sessionID]], sendParams),
+                false,
+              ),
               description: buildTodoChecklist(p?.todos),
             }
 
@@ -655,12 +744,15 @@ const plugin: Plugin = async () => {
                         : 'Message part updated: text (assistant)',
                     color: COLORS.info,
                     fields: buildFields(
-                      [
-                        ['sessionID', sessionID],
-                        ['messageID', messageID],
-                        ['partID', partID],
-                        ['role', role],
-                      ],
+                      filterSendFields(
+                        [
+                          ['sessionID', sessionID],
+                          ['messageID', messageID],
+                          ['partID', partID],
+                          ['role', role],
+                        ],
+                        sendParams,
+                      ),
                       false,
                     ),
                     description: truncateText(text || '(empty)', 4096),
@@ -731,12 +823,15 @@ const plugin: Plugin = async () => {
                     : 'Message part updated: text (assistant)',
                 color: COLORS.info,
                 fields: buildFields(
-                  [
-                    ['sessionID', sessionID],
-                    ['messageID', messageID],
-                    ['partID', partID],
-                    ['role', role],
-                  ],
+                  filterSendFields(
+                    [
+                      ['sessionID', sessionID],
+                      ['messageID', messageID],
+                      ['partID', partID],
+                      ['role', role],
+                    ],
+                    sendParams,
+                  ),
                   false,
                 ),
                 description: truncateText(text || '(empty)', 4096),
