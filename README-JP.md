@@ -66,6 +66,7 @@ OpenCode を再起動してください。
   - **デフォルト動作**（未設定・空文字）: 全て無効化（何も送信しない）
   - **全て送信したい場合**: 全キーを列挙してください
   - **注意**: `session.created` は `DISCORD_SEND_PARAMS` に関わらず `sessionID` を必ず含みます
+- `DISCORD_WEBHOOK_FALLBACK_URL`: フォールバック先のテキストチャネル webhook URL（任意。設定すると、`@everyone` または `@here` を含むメッセージが自動的にこの webhook にも送信されます。Forum webhook ではメンションが ping しない Discord の仕様上、有用）
 
 ## 仕様メモ
 
@@ -91,6 +92,11 @@ OpenCode を再起動してください。
   - `tool`: 通知しない
   - `reasoning`: 通知しない（内部思考が含まれる可能性があるため）
 - `DISCORD_SEND_PARAMS` の制御対象は embed の fields のみです（title/description/content/timestamp などは対象外）。また `share` は fields としては送りません（Session started の embed URL には `shareUrl` を使います）。
+- `DISCORD_WEBHOOK_FALLBACK_URL` が設定されている場合:
+  - `@everyone` または `@here` を含むメッセージ（`DISCORD_WEBHOOK_COMPLETE_MENTION` または `DISCORD_WEBHOOK_PERMISSION_MENTION` 経由）は、Forum webhook（スレッド投稿）とフォールバック先のテキストチャネル webhook の両方に自動的に送信されます。
+  - これにより、Forum webhook ではメンションが ping しない Discord の仕様上、確実に通知を届けることができます。
+  - フォールバックメッセージには、`DISCORD_SEND_PARAMS` の設定に関わらず、常に `sessionID` と `thread title` フィールドが含まれます（テキストチャネルでのコンテキスト提供のため）。`thread title` は Forum のスレッド名と同じ値（最初のユーザーテキスト、または存在しない場合はセッションタイトル）です。
+  - フォールバック送信は Forum スレッドキューとは独立しており、即座に実行されます。
 
 ## 動作確認（手動）
 

@@ -459,6 +459,83 @@ async function postDiscordWebhook(
   )
 }
 
+/**
+ * フォールバック先Webhookへメンションを含むメッセージを送信
+ * フォールバック投稿時は、常にセッションIDとスレッドタイトル（最初のユーザー発言）をembed fieldsに含める
+ */
+async function postFallbackIfNeeded(
+  input: {
+    body: DiscordExecuteWebhookBody
+    mention:
+      | { content?: string; allowed_mentions?: DiscordAllowedMentions }
+      | undefined
+    sessionID: string
+    fallbackUrl: string | undefined
+    firstUserTextBySession: Map<string, string>
+    lastSessionInfo: Map<string, { title?: string; shareUrl?: string }>
+  },
+  deps: PostDiscordWebhookDeps,
+): Promise<void> {
+  const {
+    body,
+    mention,
+    sessionID,
+    fallbackUrl,
+    firstUserTextBySession,
+    lastSessionInfo,
+  } = input
+
+  // フォールバックURLが未設定、またはメンションがない場合は何もしない
+  if (!fallbackUrl || !mention) return
+
+  // フォールバック用のbodyを作成
+  // embedsを複製し、常にセッションIDとスレッドタイトルをfieldsに追加
+  const fallbackBody: DiscordExecuteWebhookBody = {
+    ...body,
+    // thread_nameは削除（テキストチャネルでは不要）
+    thread_name: undefined,
+  }
+
+  // embedsが存在する場合、最初のembedにセッションIDとスレッドタイトルを追加
+  if (fallbackBody.embeds && fallbackBody.embeds.length > 0) {
+    const originalEmbed = fallbackBody.embeds[0]
+
+    // スレッドタイトルを取得（優先順位: 最初のユーザーテキスト > セッションタイトル）
+    const threadTitle =
+      firstUserTextBySession.get(sessionID) ||
+      lastSessionInfo.get(sessionID)?.title
+
+    // 既存のfieldsにセッションIDとスレッドタイトルを追加
+    const additionalFields = buildFields([
+      ['sessionID', sessionID],
+      ['thread title', threadTitle],
+    ])
+
+    fallbackBody.embeds = [
+      {
+        ...originalEmbed,
+        fields: [
+          ...(originalEmbed.fields ?? []),
+          ...(additionalFields ?? []),
+        ],
+      },
+    ]
+  }
+
+  try {
+    await postDiscordWebhook(
+      {
+        webhookUrl: fallbackUrl,
+        body: fallbackBody,
+      },
+      deps,
+    )
+  } catch (e) {
+    // フォールバック送信エラーは既存のエラーハンドリングに任せる
+    // maybeAlertErrorが内部で呼ばれるのでここでは何もしない
+  }
+}
+
 const GLOBAL_GUARD_KEY = '__opencode_discord_notify_registered__'
 
 type GlobalThisWithGuard = typeof globalThis & {
@@ -499,6 +576,10 @@ const plugin: Plugin = async ({ client }) => {
   const waitOnRateLimitMs = DEFAULT_RATE_LIMIT_WAIT_MS
 
   const sendParams = parseSendParams(getEnv('DISCORD_SEND_PARAMS'))
+
+  const fallbackWebhookUrl = (
+    getEnv('DISCORD_WEBHOOK_FALLBACK_URL') ?? ''
+  ).trim() || undefined
 
   const lastAlertAtByKey = new Map<string, number>()
   // 既送 partID を保持
@@ -824,6 +905,8 @@ const plugin: Plugin = async ({ client }) => {
             const sessionID = p?.sessionID as string | undefined
             if (!sessionID) return
 
+            const mention = buildPermissionMention()
+
             const embed: DiscordEmbed = {
               title: 'Permission required',
               description: p?.title as string | undefined,
@@ -844,13 +927,26 @@ const plugin: Plugin = async ({ client }) => {
               ),
             }
 
-            const mention = buildPermissionMention()
-
-            enqueueToThread(sessionID, {
+            const body: DiscordExecuteWebhookBody = {
               content: mention ? `${mention.content}` : undefined,
               allowed_mentions: mention?.allowed_mentions,
               embeds: [embed],
-            })
+            }
+
+            enqueueToThread(sessionID, body)
+
+            // フォールバック送信（メンションがある場合のみ）
+            await postFallbackIfNeeded(
+              {
+                body,
+                mention,
+                sessionID,
+                fallbackUrl: fallbackWebhookUrl,
+                firstUserTextBySession,
+                lastSessionInfo,
+              },
+              postDeps,
+            )
             // NOTE:
             // 「状態更新イベント」であり会話の区切りではない。
             // ここで flush すると、assistant 最終発言の flush と競合し
@@ -865,6 +961,8 @@ const plugin: Plugin = async ({ client }) => {
               | undefined
             if (!sessionID) return
 
+            const mention = buildCompleteMention()
+
             const embed: DiscordEmbed = {
               title: 'Session completed',
               color: COLORS.success,
@@ -876,12 +974,26 @@ const plugin: Plugin = async ({ client }) => {
               ),
             }
 
-            const mention = buildCompleteMention()
-            enqueueToThread(sessionID, {
+            const body: DiscordExecuteWebhookBody = {
               content: mention ? `${mention.content}` : undefined,
               allowed_mentions: mention?.allowed_mentions,
               embeds: [embed],
-            })
+            }
+
+            enqueueToThread(sessionID, body)
+
+            // フォールバック送信（メンションがある場合のみ）
+            await postFallbackIfNeeded(
+              {
+                body,
+                mention,
+                sessionID,
+                fallbackUrl: fallbackWebhookUrl,
+                firstUserTextBySession,
+                lastSessionInfo,
+              },
+              postDeps,
+            )
             // NOTE:
             // 「状態更新イベント」であり会話の区切りではない。
             // ここで flush すると、assistant 最終発言の flush と競合し
@@ -922,11 +1034,28 @@ const plugin: Plugin = async ({ client }) => {
 
             const mention = buildCompleteMention()
 
-            enqueueToThread(sessionID, {
-              content: mention ? `$Session error` : undefined,
+            const body: DiscordExecuteWebhookBody = {
+              // 🐛 既存バグ修正: `$Session error` → `${mention.content}`
+              content: mention ? `${mention.content}` : undefined,
               allowed_mentions: mention?.allowed_mentions,
               embeds: [embed],
-            })
+            }
+
+            enqueueToThread(sessionID, body)
+
+            // フォールバック送信（メンションがある場合のみ）
+            await postFallbackIfNeeded(
+              {
+                body,
+                mention,
+                sessionID,
+                fallbackUrl: fallbackWebhookUrl,
+                firstUserTextBySession,
+                lastSessionInfo,
+              },
+              postDeps,
+            )
+
             await flushPending(sessionID)
             return
           }
@@ -1031,6 +1160,7 @@ const plugin: Plugin = async ({ client }) => {
   postDiscordWebhook,
   parseSendParams,
   getTodoStatusMarker,
+  postFallbackIfNeeded,
 }
 
 export default plugin

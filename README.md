@@ -68,6 +68,7 @@ Optional:
   - **Default behavior** (unset/empty): all fields are disabled (nothing sent)
   - **To send all fields**: list all keys explicitly
   - **Note**: `session.created` always includes `sessionID` regardless
+- `DISCORD_WEBHOOK_FALLBACK_URL`: fallback webhook URL for text channel (optional; when set, messages containing `@everyone` or `@here` are automatically sent to this webhook as well; useful because Forum webhooks may not ping mentions due to Discord behavior)
 
 ## Notes / behavior
 
@@ -93,6 +94,11 @@ Optional:
   - `tool`: not posted
   - `reasoning`: not posted (to avoid exposing internal thoughts)
 - `DISCORD_SEND_PARAMS` controls embed fields only (it does not affect title/description/content/timestamp). `share` is not an embed field (but Session started uses `shareUrl` as the embed URL).
+- When `DISCORD_WEBHOOK_FALLBACK_URL` is set:
+  - Messages containing `@everyone` or `@here` (via `DISCORD_WEBHOOK_COMPLETE_MENTION` or `DISCORD_WEBHOOK_PERMISSION_MENTION`) are automatically sent to both the Forum webhook (as a thread post) and the fallback text channel webhook.
+  - This ensures reliable notifications while maintaining thread structure in Forums, since Forum webhooks may not ping mentions due to Discord behavior.
+  - Fallback messages always include `sessionID` and `thread title` fields, regardless of `DISCORD_SEND_PARAMS` settings, to provide context in the text channel. The `thread title` is the same as the Forum thread name (first user text, or session title if unavailable).
+  - Fallback sending is independent of the Forum thread queue and happens immediately.
 
 ## Manual test
 
