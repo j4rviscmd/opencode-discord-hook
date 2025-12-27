@@ -4,3 +4,4 @@ node_modules/
 dist/
 .opencode/node_modules/
 .opencode/logs/
+coverage/
