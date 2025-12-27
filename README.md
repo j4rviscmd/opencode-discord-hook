@@ -8,8 +8,6 @@
 ![Discord Webhook](https://img.shields.io/badge/Discord-Webhook-5865F2?logo=discord&logoColor=fff)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=fff)
 
-English | [日本語](README-JP.md)
-
 <p align="center">
   <img src="assets/image/sample-forum-ch.png" width="700" alt="Discord Forum channel example" />
 </p>
