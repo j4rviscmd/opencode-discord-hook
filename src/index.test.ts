@@ -49,6 +49,16 @@ describe('__test__.buildFields', () => {
   })
 })
 
+describe('__test__.getTodoStatusMarker', () => {
+  it('returns correct marker for each status', () => {
+    expect(__test__.getTodoStatusMarker('completed')).toBe('[✓]')
+    expect(__test__.getTodoStatusMarker('in_progress')).toBe('[▶]')
+    expect(__test__.getTodoStatusMarker('pending')).toBe('[ ]')
+    expect(__test__.getTodoStatusMarker(undefined)).toBe('[ ]')
+    expect(__test__.getTodoStatusMarker('unknown')).toBe('[ ]')
+  })
+})
+
 describe('__test__.buildMention', () => {
   it('@everyone/@here yields allowed_mentions.parse=["everyone"]', () => {
     expect(__test__.buildMention('@everyone', 'x')).toEqual({

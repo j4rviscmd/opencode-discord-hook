@@ -1,5 +1,9 @@
 import type { Plugin } from '@opencode-ai/plugin'
 
+// ================================================================================
+// Type Definitions
+// ================================================================================
+
 type DiscordWebhookMessageResponse = {
   id: string
   channel_id: string
@@ -41,6 +45,29 @@ type SendParamKey =
   | 'directory'
   | 'projectID'
 
+// ================================================================================
+// Constants
+// ================================================================================
+
+// Discord API制限
+const DISCORD_FIELD_VALUE_MAX_LENGTH = 1024
+const DISCORD_EMBED_DESCRIPTION_MAX_LENGTH = 4096
+const DISCORD_THREAD_NAME_MAX_LENGTH = 100
+const ELLIPSIS = '...'
+const ELLIPSIS_LENGTH = 3
+
+// UI設定
+const TOAST_DURATION_MS = 8000
+const TOAST_COOLDOWN_MS = 30_000
+const TODO_ITEM_DISPLAY_MAX_LENGTH = 200
+
+// HTTP
+const HTTP_STATUS_TOO_MANY_REQUESTS = 429
+const MS_PER_SECOND = 1000
+
+// レート制限
+const DEFAULT_RATE_LIMIT_WAIT_MS = 10_000
+
 const SEND_PARAM_KEYS: SendParamKey[] = [
   'sessionID',
   'permissionID',
@@ -62,6 +89,10 @@ const COLORS = {
   warning: 0xfee75c,
   error: 0xed4245,
 } as const
+
+// ================================================================================
+// Utility Functions
+// ================================================================================
 
 function safeString(value: unknown): string {
   if (value === null || value === undefined) return ''
@@ -87,9 +118,19 @@ function buildFields(
   for (const [name, rawValue] of fields) {
     const value = safeString(rawValue)
     if (!value) continue
+
+    // Discord API制限: フィールド値は最大1024文字
+    const truncatedValue =
+      value.length > DISCORD_FIELD_VALUE_MAX_LENGTH
+        ? value.slice(
+            0,
+            DISCORD_FIELD_VALUE_MAX_LENGTH - ELLIPSIS_LENGTH,
+          ) + ELLIPSIS
+        : value
+
     result.push({
       name,
-      value: value.length > 1024 ? value.slice(0, 1021) + '...' : value,
+      value: truncatedValue,
       inline,
     })
   }
@@ -200,8 +241,20 @@ function normalizeTodoContent(value: unknown): string {
   return safeString(value).replace(/\s+/g, ' ').trim()
 }
 
+/**
+ * Todoアイテムのステータスに応じたマーカーを取得
+ */
+function getTodoStatusMarker(status: string | undefined): string {
+  if (status === 'completed') return '[✓]'
+  if (status === 'in_progress') return '[▶]'
+  return '[ ]'
+}
+
+/**
+ * Todoリストをチェックリスト形式の文字列に変換
+ * Discord API制限: description最大4096文字
+ */
 function buildTodoChecklist(todos: unknown): string {
-  const maxDescription = 4096
   const items = Array.isArray(todos) ? todos : []
 
   let matchCount = 0
@@ -210,17 +263,21 @@ function buildTodoChecklist(todos: unknown): string {
 
   for (const item of items) {
     const status = (item as any)?.status as string | undefined
+
+    // キャンセル済みアイテムはスキップ
     if (status === 'cancelled') continue
 
     const content = normalizeTodoContent((item as any)?.content)
     if (!content) continue
 
-    const marker =
-      status === 'completed' ? '[✓]' : status === 'in_progress' ? '[▶]' : '[ ]'
-    const line = `> ${marker} ${truncateText(content, 200)}`
+    const marker = getTodoStatusMarker(status)
+    const line = `> ${marker} ${truncateText(content, TODO_ITEM_DISPLAY_MAX_LENGTH)}`
 
     const nextChunk = (description ? '\n' : '') + line
-    if (description.length + nextChunk.length > maxDescription) {
+    if (
+      description.length + nextChunk.length >
+      DISCORD_EMBED_DESCRIPTION_MAX_LENGTH
+    ) {
       truncated = true
       break
     }
@@ -233,9 +290,13 @@ function buildTodoChecklist(todos: unknown): string {
     return '> (no todos)'
   }
 
+  // 切り捨てられた、または表示されていないアイテムがある場合
   if (truncated || matchCount < items.length) {
     const moreLine = `${description ? '\n' : ''}> ...and more`
-    if (description.length + moreLine.length <= maxDescription) {
+    if (
+      description.length + moreLine.length <=
+      DISCORD_EMBED_DESCRIPTION_MAX_LENGTH
+    ) {
       description += moreLine
     }
   }
@@ -337,8 +398,8 @@ async function postDiscordWebhook(
     return { id: messageId, channel_id: channelId }
   }
 
-  // handle non-ok
-  if (response.status === 429) {
+  // レート制限エラー（HTTP 429）の処理
+  if (response.status === HTTP_STATUS_TOO_MANY_REQUESTS) {
     const text = await response.text().catch(() => '')
     const retryAfterSeconds =
       parseRetryAfterFromText(text) ??
@@ -347,7 +408,7 @@ async function postDiscordWebhook(
     const waitMs =
       retryAfterSeconds === undefined
         ? deps.waitOnRateLimitMs
-        : Math.ceil(retryAfterSeconds * 1000)
+        : Math.ceil(retryAfterSeconds * MS_PER_SECOND)
 
     await sleepImpl(waitMs)
     const retryResponse = await doRequest()
@@ -357,8 +418,8 @@ async function postDiscordWebhook(
         await deps.maybeAlertError({
           key: `discord_webhook_error:${retryResponse.status}`,
           title: 'Discord webhook rate-limited',
-          message: `Discord webhook returned 429 (rate limited). Waited ${Math.round(
-            waitMs / 1000,
+          message: `Discord webhook returned ${HTTP_STATUS_TOO_MANY_REQUESTS} (rate limited). Waited ${Math.round(
+            waitMs / MS_PER_SECOND,
           )}s and retried, but it still failed.`,
           variant: 'warning',
         })
@@ -435,8 +496,7 @@ const plugin: Plugin = async ({ client }) => {
   ).trim()
   const showErrorAlert = showErrorAlertRaw !== '0'
 
-  const waitOnRateLimitMs = 10_000
-  const toastCooldownMs = 30_000
+  const waitOnRateLimitMs = DEFAULT_RATE_LIMIT_WAIT_MS
 
   const sendParams = parseSendParams(getEnv('DISCORD_SEND_PARAMS'))
 
@@ -447,7 +507,7 @@ const plugin: Plugin = async ({ client }) => {
   const showToast: ShowToast = async ({ title, message, variant }) => {
     try {
       await client.tui.showToast({
-        body: { title, message, variant, duration: 8000 },
+        body: { title, message, variant, duration: TOAST_DURATION_MS },
       } as any)
     } catch {
       // noop
@@ -463,7 +523,7 @@ const plugin: Plugin = async ({ client }) => {
     if (!showErrorAlert) return
     const now = Date.now()
     const last = lastAlertAtByKey.get(key)
-    if (last !== undefined && now - last < toastCooldownMs) return
+    if (last !== undefined && now - last < TOAST_COOLDOWN_MS) return
     lastAlertAtByKey.set(key, now)
     await showToast({ title, message, variant })
   }
@@ -472,7 +532,7 @@ const plugin: Plugin = async ({ client }) => {
   async function showMissingUrlToastOnce() {
     const now = Date.now()
     const last = lastAlertAtByKey.get(MISSING_URL_KEY)
-    if (last !== undefined && now - last < toastCooldownMs) return
+    if (last !== undefined && now - last < TOAST_COOLDOWN_MS) return
     lastAlertAtByKey.set(MISSING_URL_KEY, now)
     await showToast({
       title: 'Discord webhook not configured',
@@ -508,19 +568,26 @@ const plugin: Plugin = async ({ client }) => {
     return text.trimStart().startsWith('<file>')
   }
 
+  /**
+   * セッションIDからスレッド名を生成
+   * 優先順位: ユーザーテキスト > セッションタイトル > セッションID > 'untitled'
+   * Discord API制限: スレッド名最大100文字
+   */
   function buildThreadName(sessionID: string): string {
     const fromUser = normalizeThreadTitle(firstUserTextBySession.get(sessionID))
-    if (fromUser) return fromUser.slice(0, 100)
+    if (fromUser) return fromUser.slice(0, DISCORD_THREAD_NAME_MAX_LENGTH)
 
     const fromSessionTitle = normalizeThreadTitle(
       lastSessionInfo.get(sessionID)?.title,
     )
-    if (fromSessionTitle) return fromSessionTitle.slice(0, 100)
+    if (fromSessionTitle)
+      return fromSessionTitle.slice(0, DISCORD_THREAD_NAME_MAX_LENGTH)
 
     const fromSessionId = normalizeThreadTitle(
       sessionID ? `session ${sessionID}` : '',
     )
-    if (fromSessionId) return fromSessionId.slice(0, 100)
+    if (fromSessionId)
+      return fromSessionId.slice(0, DISCORD_THREAD_NAME_MAX_LENGTH)
 
     return 'untitled'
   }
@@ -695,7 +762,10 @@ const plugin: Plugin = async ({ client }) => {
           sendParams,
         ),
       ),
-      description: truncateText(text || '(empty)', 4096),
+      description: truncateText(
+        text || '(empty)',
+        DISCORD_EMBED_DESCRIPTION_MAX_LENGTH,
+      ),
     }
 
     enqueueToThread(sessionID, { embeds: [embed] })
@@ -833,8 +903,11 @@ const plugin: Plugin = async ({ client }) => {
               title: 'Session error',
               color: COLORS.error,
               description: errorStr
-                ? errorStr.length > 4096
-                  ? errorStr.slice(0, 4093) + '...'
+                ? errorStr.length > DISCORD_EMBED_DESCRIPTION_MAX_LENGTH
+                  ? errorStr.slice(
+                      0,
+                      DISCORD_EMBED_DESCRIPTION_MAX_LENGTH - ELLIPSIS_LENGTH,
+                    ) + ELLIPSIS
                   : errorStr
                 : undefined,
               fields: buildFields(
@@ -960,6 +1033,7 @@ const plugin: Plugin = async ({ client }) => {
   buildFields,
   toIsoTimestamp,
   postDiscordWebhook,
+  getTodoStatusMarker,
 }
 
 export default plugin
