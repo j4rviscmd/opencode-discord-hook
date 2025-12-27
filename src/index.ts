@@ -134,6 +134,10 @@ function getEnv(name: string): string | undefined {
 function parseSendParams(raw: string | undefined): Set<SendParamKey> {
   if (raw === undefined) return new Set(SEND_PARAM_KEYS)
 
+  // 特別値の判定（大文字小文字を区別しない）
+  const normalized = raw.trim().toLowerCase()
+  if (normalized === 'none') return new Set()
+
   const tokens = raw
     .split(',')
     .map((v) => v.trim())
@@ -971,6 +975,7 @@ const plugin: Plugin = async ({ client }) => {
   buildFields,
   toIsoTimestamp,
   postDiscordWebhook,
+  parseSendParams,
 }
 
 export default plugin

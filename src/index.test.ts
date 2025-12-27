@@ -132,6 +132,64 @@ describe('__test__.postDiscordWebhook', () => {
   })
 })
 
+describe('__test__.parseSendParams', () => {
+  it('undefined returns all keys', () => {
+    const result = __test__.parseSendParams(undefined)
+    expect(result.has('sessionID')).toBe(true)
+    expect(result.has('messageID')).toBe(true)
+    expect(result.has('partID')).toBe(true)
+    expect(result.size).toBeGreaterThan(0)
+  })
+
+  it('empty string returns all keys', () => {
+    const result = __test__.parseSendParams('')
+    expect(result.has('sessionID')).toBe(true)
+    expect(result.size).toBeGreaterThan(0)
+  })
+
+  it('comma-only string returns all keys', () => {
+    const result = __test__.parseSendParams(',,,')
+    expect(result.has('sessionID')).toBe(true)
+    expect(result.size).toBeGreaterThan(0)
+  })
+
+  it('NONE (uppercase) returns empty set', () => {
+    const result = __test__.parseSendParams('NONE')
+    expect(result.size).toBe(0)
+  })
+
+  it('none (lowercase) returns empty set', () => {
+    const result = __test__.parseSendParams('none')
+    expect(result.size).toBe(0)
+  })
+
+  it('NoNe (mixed case) returns empty set', () => {
+    const result = __test__.parseSendParams('NoNe')
+    expect(result.size).toBe(0)
+  })
+
+  it('NONE with spaces returns empty set', () => {
+    const result = __test__.parseSendParams(' NONE ')
+    expect(result.size).toBe(0)
+  })
+
+  it('specific keys returns only those keys', () => {
+    const result = __test__.parseSendParams('sessionID,messageID')
+    expect(result.has('sessionID')).toBe(true)
+    expect(result.has('messageID')).toBe(true)
+    expect(result.has('partID')).toBe(false)
+    expect(result.size).toBe(2)
+  })
+
+  it('invalid keys are ignored', () => {
+    const result = __test__.parseSendParams('sessionID,invalidKey,messageID')
+    expect(result.has('sessionID')).toBe(true)
+    expect(result.has('messageID')).toBe(true)
+    expect(result.has('invalidKey' as any)).toBe(false)
+    expect(result.size).toBe(2)
+  })
+})
+
 describe('plugin integration', () => {
   beforeEach(() => {
     delete (globalThis as any).__opencode_discord_notify_registered__
