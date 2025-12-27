@@ -12,112 +12,227 @@
   <img src="assets/image/sample-forum-ch.png" width="700" alt="Discord Forum channel example" />
 </p>
 
-A plugin that posts OpenCode events to a Discord webhook.
+**Get real-time OpenCode notifications directly in your Discord server.**
 
-It is optimized for Discord Forum channel webhooks: it creates one thread per session (via `thread_name`) and posts subsequent updates to the same thread.
-It also works with regular text channel webhooks (in that case, it falls back to posting directly to the channel because threads cannot be created).
+This plugin creates organized threads in Discord Forum channels for each OpenCode session, keeping you updated on session events, permissions, todos, and conversations.
 
-## What it does
+## Features
 
-- `session.created`: session started → queues a start notification (thread creation / sending may happen later when required info is available)
-- `permission.updated`: permission request → posts a notification
-- `session.idle`: session finished → posts a notification
-- `session.error`: error → posts a notification (skips if `sessionID` is not present)
-- `todo.updated`: todo updates → posts a checklist (keeps received order; excludes `cancelled`)
-- `message.updated`: does not notify (tracked for role inference; may emit previously-held `text` later)
-- `message.part.updated`: message content/tool results updates →
-  - `text`: user text is posted immediately; assistant text is posted only when finalized (when `time.end` exists)
-  - `tool`: not posted
-  - `reasoning`: not posted
+- **Session tracking**: Automatic thread creation for each session
+- **Real-time updates**: Permission requests, session completion, errors
+- **Todo checklists**: Visual todo updates with status icons
+- **Smart notifications**: User messages sent immediately, agent responses when finalized
+- **Mention support**: Optional `@everyone` or `@here` mentions for important events
+- **Fallback webhooks**: Send critical mentions to text channels for guaranteed delivery
 
-## Setup
+## Quick Start
 
-### 1) Add the plugin
+### 1. Install the plugin
 
-Add this plugin to your `opencode.json` / `opencode.jsonc` and restart OpenCode.
+Add to your `opencode.json` or `opencode.jsonc`:
 
 ```jsonc
 {
-  "plugin": ["opencode-discord-notify@latest"],
+  "plugin": ["opencode-discord-notify@latest"]
 }
 ```
 
-### 2) Create a Discord webhook
+Restart OpenCode.
 
-- Recommended: create a webhook in a Discord Forum channel.
-- A webhook in a regular text channel also works, but thread creation using `thread_name` is a Forum-oriented behavior.
+### 2. Create a Discord webhook
 
-### 3) Environment variables
+1. Open your Discord server settings
+2. Go to a **Forum channel** (recommended) or text channel
+3. Navigate to **Integrations** → **Webhooks**
+4. Click **New Webhook** and copy the webhook URL
 
-Required:
+### 3. Set the webhook URL
 
-- `DISCORD_WEBHOOK_URL`: Discord webhook URL (if not set, the plugin does nothing)
+Set the environment variable:
 
-Optional:
+```bash
+export DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/..."
+```
 
-- `DISCORD_WEBHOOK_USERNAME`: username for webhook posts
-- `DISCORD_WEBHOOK_AVATAR_URL`: avatar URL for webhook posts
-- `DISCORD_WEBHOOK_COMPLETE_MENTION`: mention to put in `session.idle` / `session.error` messages (only `@everyone` or `@here` supported; Forum webhooks may not actually ping due to Discord behavior)
-- `DISCORD_WEBHOOK_PERMISSION_MENTION`: mention to put in `permission.updated` messages (no fallback to `DISCORD_WEBHOOK_COMPLETE_MENTION`; only `@everyone` or `@here` supported; Forum webhooks may not actually ping due to Discord behavior)
-- `DISCORD_WEBHOOK_EXCLUDE_INPUT_CONTEXT`: when set to `1`, exclude "input context" (user `text` parts that start with `<file>`) from notifications (default: `1`; set to `0` to disable)
-- `DISCORD_WEBHOOK_SHOW_ERROR_ALERT`: when set to `1`, show an OpenCode TUI toast when Discord webhook requests fail (includes 429). (default: `1`; set to `0` to disable)
-- `DISCORD_SEND_PARAMS`: comma-separated list of keys to include as embed fields.
-  - **Allowed keys**: `sessionID`, `permissionID`, `type`, `pattern`, `messageID`, `callID`, `partID`, `role`, `directory`, `projectID`
-  - **Default behavior** (unset/empty): all fields are disabled (nothing sent)
-  - **To send all fields**: list all keys explicitly
-  - **Note**: `session.created` always includes `sessionID` regardless
-- `DISCORD_WEBHOOK_FALLBACK_URL`: fallback webhook URL for text channel (optional; when set, messages containing `@everyone` or `@here` are automatically sent to this webhook as well; useful because Forum webhooks may not ping mentions due to Discord behavior)
+**That's it!** Start using OpenCode and watch notifications appear in Discord.
 
-## Notes / behavior
+## Configuration
 
-- If `DISCORD_WEBHOOK_URL` is not set, it becomes a no-op.
-- If a webhook request fails, it may show an OpenCode TUI toast (controlled by `DISCORD_WEBHOOK_SHOW_ERROR_ALERT`).
-- On HTTP 429, it waits `retry_after` seconds if provided (otherwise ~10s) and retries once; if it still fails, it shows a warning toast.
-- For Forum thread creation, it appends `?wait=true` and uses `channel_id` in the response as the thread ID.
-- `thread_name` priority order (max 100 chars):
-  1. first user `text`
-  2. session title
-  3. `session <sessionID>`
-  4. `untitled`
-- If thread creation fails (e.g. on non-Forum webhooks), it falls back to posting directly to the channel.
-- `permission.updated` / `session.idle` may be queued until the thread name becomes available.
-- `session.error` is skipped when `sessionID` is missing in the upstream payload.
-- `DISCORD_WEBHOOK_COMPLETE_MENTION=@everyone` (or `@here`) is included as message content, but Forum webhooks may not actually ping (it may just show as plain text).
-- `DISCORD_WEBHOOK_PERMISSION_MENTION=@everyone` (or `@here`) is included as message content for `permission.updated`, but Forum webhooks may not actually ping (it may just show as plain text).
-- `todo.updated` posts a checklist in the order received (`in_progress` = `[▶]`, `completed` = `[✓]`, `cancelled` excluded). Long lists may be truncated to fit embed constraints (if empty: `(no todos)`; if truncated: adds `...and more`).
-- `message.updated` is not posted (tracked for role inference; may post a previously-held text part later).
-- `message.part.updated` policy:
-  - `text`: user is posted immediately; assistant is posted only when finalized (when `part.time.end` exists)
-    - Embed titles are `User says` / `Agent says`
-  - `tool`: not posted
-  - `reasoning`: not posted (to avoid exposing internal thoughts)
-- `DISCORD_SEND_PARAMS` controls embed fields only (it does not affect title/description/content/timestamp). `share` is not an embed field (but Session started uses `shareUrl` as the embed URL).
-- When `DISCORD_WEBHOOK_FALLBACK_URL` is set:
-  - Messages containing `@everyone` or `@here` (via `DISCORD_WEBHOOK_COMPLETE_MENTION` or `DISCORD_WEBHOOK_PERMISSION_MENTION`) are automatically sent to both the Forum webhook (as a thread post) and the fallback text channel webhook.
-  - This ensures reliable notifications while maintaining thread structure in Forums, since Forum webhooks may not ping mentions due to Discord behavior.
-  - Fallback messages always include `sessionID` and `thread title` fields, regardless of `DISCORD_SEND_PARAMS` settings, to provide context in the text channel. The `thread title` is the same as the Forum thread name (first user text, or session title if unavailable).
-  - Fallback sending is independent of the Forum thread queue and happens immediately.
+### Environment Variables
 
-## Manual test
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `DISCORD_WEBHOOK_URL` | ✅ Yes | - | Discord webhook URL. Plugin is disabled if not set. |
+| `DISCORD_WEBHOOK_USERNAME` | ❌ No | - | Custom username for webhook posts |
+| `DISCORD_WEBHOOK_AVATAR_URL` | ❌ No | - | Custom avatar URL for webhook posts |
+| `DISCORD_WEBHOOK_COMPLETE_MENTION` | ❌ No | - | Add `@everyone` or `@here` to session completion/error notifications |
+| `DISCORD_WEBHOOK_PERMISSION_MENTION` | ❌ No | - | Add `@everyone` or `@here` to permission request notifications |
+| `DISCORD_WEBHOOK_EXCLUDE_INPUT_CONTEXT` | ❌ No | `1` | Set to `0` to include file context in notifications |
+| `DISCORD_WEBHOOK_SHOW_ERROR_ALERT` | ❌ No | `1` | Set to `0` to disable error toast notifications |
+| `DISCORD_SEND_PARAMS` | ❌ No | - | Comma-separated embed fields: `sessionID,permissionID,type,pattern,messageID,callID,partID,role,directory,projectID` |
+| `DISCORD_WEBHOOK_FALLBACK_URL` | ❌ No | - | Fallback webhook URL for text channel (sends mentions here too for guaranteed ping) |
 
-1. Start OpenCode → a new thread appears in the Forum channel on the first notification timing
-2. Trigger a permission request → a notification is posted to the same thread (if the thread isn't created yet, it may be created later)
-3. Finish the session → `session.idle` is posted (if you set `DISCORD_WEBHOOK_COMPLETE_MENTION`, it may not actually ping in Forum webhooks)
-4. Trigger an error → `session.error` is posted (skipped if no `sessionID`; if you set `DISCORD_WEBHOOK_COMPLETE_MENTION`, it may not actually ping in Forum webhooks)
+### Example Configuration
+
+**Basic usage:**
+
+```bash
+export DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/your-webhook-url"
+```
+
+**With mentions and fallback:**
+
+```bash
+export DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/forum-webhook-url"
+export DISCORD_WEBHOOK_FALLBACK_URL="https://discord.com/api/webhooks/text-channel-webhook-url"
+export DISCORD_WEBHOOK_COMPLETE_MENTION="@everyone"
+export DISCORD_WEBHOOK_PERMISSION_MENTION="@here"
+```
+
+**With custom appearance:**
+
+```bash
+export DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/your-webhook-url"
+export DISCORD_WEBHOOK_USERNAME="OpenCode Bot"
+export DISCORD_WEBHOOK_AVATAR_URL="https://example.com/avatar.png"
+```
+
+## Advanced
+
+<details>
+<summary><strong>Event Handling Details</strong></summary>
+
+### Supported Events
+
+- **`session.created`**: Queues session start notification (sent when thread info is available)
+- **`permission.updated`**: Posts permission request immediately
+- **`session.idle`**: Posts session completion notification
+- **`session.error`**: Posts error notification (skipped if `sessionID` missing)
+- **`todo.updated`**: Posts checklist with `[▶]` (in progress), `[✓]` (completed); excludes cancelled
+- **`message.updated`**: Tracked internally for role detection (not posted)
+- **`message.part.updated`**:
+  - `text`: User messages posted immediately; agent messages posted when finalized
+  - `tool`: Not posted
+  - `reasoning`: Not posted
+
+</details>
+
+<details>
+<summary><strong>Thread Creation Behavior</strong></summary>
+
+### Thread Naming Priority
+
+Thread names use the first available option (max 100 chars):
+
+1. First user text message
+2. Session title
+3. `session <sessionID>`
+4. `untitled`
+
+### Forum vs Text Channel
+
+- **Forum channels**: Creates a new thread per session using `thread_name`
+- **Text channels**: Posts directly (threads not supported)
+- **Fallback**: If thread creation fails, falls back to direct channel posting
+
+</details>
+
+<details>
+<summary><strong>Mention & Fallback Behavior</strong></summary>
+
+### Why Fallback Webhooks?
+
+Discord Forum webhooks **do not trigger pings** for `@everyone` or `@here` mentions. They appear as plain text.
+
+To ensure you get notified:
+
+1. Set `DISCORD_WEBHOOK_URL` to your Forum webhook (for organized threads)
+2. Set `DISCORD_WEBHOOK_FALLBACK_URL` to a text channel webhook (for actual pings)
+3. Messages with mentions will be sent to **both** webhooks
+
+### Fallback Message Format
+
+Fallback messages always include:
+- `sessionID` field
+- `thread title` field (same as Forum thread name)
+
+This provides context when viewing notifications in the text channel.
+
+</details>
+
+<details>
+<summary><strong>Error Handling & Rate Limits</strong></summary>
+
+### HTTP 429 (Rate Limit)
+
+- Waits for `retry_after` seconds (or ~10s if not provided)
+- Retries once
+- Shows warning toast if still fails
+
+### Failed Requests
+
+- Shows OpenCode TUI toast notification (controlled by `DISCORD_WEBHOOK_SHOW_ERROR_ALERT`)
+- Logs error details for debugging
+
+</details>
+
+<details>
+<summary><strong>Field Customization</strong></summary>
+
+### `DISCORD_SEND_PARAMS`
+
+Controls which metadata fields appear in embeds.
+
+**Allowed keys:**
+- `sessionID`, `permissionID`, `type`, `pattern`, `messageID`, `callID`, `partID`, `role`, `directory`, `projectID`
+
+**Default behavior (unset/empty):**
+- No fields sent (cleaner embeds)
+
+**To send all fields:**
+```bash
+export DISCORD_SEND_PARAMS="sessionID,permissionID,type,pattern,messageID,callID,partID,role,directory,projectID"
+```
+
+**Note:** `session.created` always includes `sessionID` regardless of this setting.
+
+</details>
 
 ## Development
 
-- Install deps: `npm i`
-- Format: `npx prettier . --write`
-- Plugin source: `src/index.ts`
+### Setup
 
-## Roadmap (planned)
+```bash
+npm install
+```
 
-- Publish as an npm package (to make install/update easier)
-- Support multiple webhooks / multiple channels (route by use case)
-- Allow customizing notifications (events, message templates, mention policy)
-  - Consider reading a config file (e.g. `opencode-discord-notify.config.json`) and resolving values from env vars as needed
-- Improve Discord limitations handling (rate-limit retry, split posts, better truncation rules)
-- Improve CI (automate lint/format; add basic tests)
+### Format Code
 
-PRs and issues are welcome.
+```bash
+npx prettier . --write
+```
+
+### Plugin Source
+
+Main implementation: `src/index.ts`
+
+## Roadmap
+
+- [ ] Support multiple webhooks for routing by event type
+- [ ] Customizable notification templates
+- [ ] Configuration file support (e.g., `opencode-discord-notify.config.json`)
+- [ ] Enhanced rate limit handling (smarter retry logic, message queuing)
+- [ ] CI/CD (automated linting, formatting, testing)
+
+## Contributing
+
+PRs and issues are welcome! Please feel free to:
+
+- Report bugs
+- Request features
+- Submit improvements
+- Share feedback
+
+---
+
+**License:** MIT
