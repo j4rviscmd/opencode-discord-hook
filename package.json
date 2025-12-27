@@ -1,6 +1,6 @@
 {
   "name": "opencode-discord-notify",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "description": "A plugin that posts OpenCode events to a Discord webhook.",
   "license": "MIT",
   "type": "module",
@@ -36,6 +36,7 @@
   "devDependencies": {
     "@opencode-ai/plugin": "1.0.194",
     "@types/node": "^20.19.27",
+    "@vitest/coverage-v8": "^4.0.16",
     "prettier": "^3.7.4",
     "prettier-plugin-organize-imports": "^4.3.0",
     "tsup": "^8.5.0",

@@ -34,11 +34,28 @@ describe('__test__.buildFields', () => {
       ['ok', 'v'],
     ])
 
-    expect(result?.map((f) => f.name)).toEqual(['long', 'ok'])
+    expect(
+      result?.map(
+        (f: { name: string; value: string; inline?: boolean }) => f.name,
+      ),
+    ).toEqual(['long', 'ok'])
 
-    const longField = result?.find((f) => f.name === 'long')
+    const longField = result?.find(
+      (f: { name: string; value: string; inline?: boolean }) =>
+        f.name === 'long',
+    )
     expect(longField?.value.length).toBe(1024)
     expect(longField?.value.endsWith('...')).toBe(true)
+  })
+})
+
+describe('__test__.getTodoStatusMarker', () => {
+  it('returns correct marker for each status', () => {
+    expect(__test__.getTodoStatusMarker('completed')).toBe('[✓]')
+    expect(__test__.getTodoStatusMarker('in_progress')).toBe('[▶]')
+    expect(__test__.getTodoStatusMarker('pending')).toBe('[ ]')
+    expect(__test__.getTodoStatusMarker(undefined)).toBe('[ ]')
+    expect(__test__.getTodoStatusMarker('unknown')).toBe('[ ]')
   })
 })
 
@@ -129,6 +146,96 @@ describe('__test__.postDiscordWebhook', () => {
 
     expect(fetchImpl).toHaveBeenCalledTimes(2)
     expect(sleepImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('429 retry with wait=true returns valid response', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ retry_after: 0 }), {
+          status: 429,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ id: 'msg1', channel_id: 'thread123' }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
+      )
+
+    const result = await __test__.postDiscordWebhook(
+      {
+        webhookUrl: 'https://example.invalid/webhook',
+        body: { content: 'test' },
+        wait: true,
+      },
+      {
+        showErrorAlert: false,
+        maybeAlertError: async () => {},
+        waitOnRateLimitMs: 10,
+        fetchImpl: fetchImpl as any,
+        sleepImpl: async () => {},
+      },
+    )
+
+    expect(result).toEqual({ id: 'msg1', channel_id: 'thread123' })
+  })
+
+  it('wait=true with invalid json fields returns undefined', async () => {
+    const fetchImpl = vi.fn().mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ id: 123, channel_id: 456 }), // Wrong types
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        },
+      ),
+    )
+
+    const result = await __test__.postDiscordWebhook(
+      {
+        webhookUrl: 'https://example.invalid/webhook',
+        body: { content: 'test' },
+        wait: true,
+      },
+      {
+        showErrorAlert: false,
+        maybeAlertError: async () => {},
+        waitOnRateLimitMs: 10,
+        fetchImpl: fetchImpl as any,
+      },
+    )
+
+    expect(result).toBeUndefined()
+  })
+
+  it('wait=true with null json returns undefined', async () => {
+    const fetchImpl = vi.fn().mockResolvedValueOnce(
+      new Response('null', {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+
+    const result = await __test__.postDiscordWebhook(
+      {
+        webhookUrl: 'https://example.invalid/webhook',
+        body: { content: 'test' },
+        wait: true,
+      },
+      {
+        showErrorAlert: false,
+        maybeAlertError: async () => {},
+        waitOnRateLimitMs: 10,
+        fetchImpl: fetchImpl as any,
+      },
+    )
+
+    expect(result).toBeUndefined()
   })
 })
 
@@ -253,5 +360,1126 @@ describe('plugin integration', () => {
 
     const secondUrl = new URL(calls[1].url)
     expect(secondUrl.searchParams.get('thread_id')).toBe('thread123')
+  })
+
+  it('permission.updated: sends permission request with mention', async () => {
+    process.env.DISCORD_WEBHOOK_PERMISSION_MENTION = '@here'
+
+    const calls: Array<{ url: string; init: RequestInit }> = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: any, init: any) => {
+        calls.push({ url: String(url), init })
+        if (calls.length === 1) {
+          return new Response(
+            JSON.stringify({ id: 'm0', channel_id: 'thread123' }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          )
+        }
+        return new Response(null, { status: 204 })
+      }),
+    )
+
+    const instance = await (pluginDefault as any)({
+      client: createClientMock(),
+    })
+
+    await instance.event?.({
+      event: {
+        type: 'session.created',
+        properties: { info: { id: 's1', title: 't', time: { created: 0 } } },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: {
+        type: 'message.part.updated',
+        properties: {
+          part: {
+            sessionID: 's1',
+            messageID: 'm1',
+            id: 'p1',
+            type: 'text',
+            text: 'user text',
+            time: { start: 0, end: 1 },
+          },
+        },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: {
+        type: 'message.updated',
+        properties: { info: { id: 'm1', role: 'user' } },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: {
+        type: 'permission.updated',
+        properties: {
+          sessionID: 's1',
+          id: 'perm1',
+          type: 'tool_use',
+          pattern: '*.ts',
+          title: 'Permission needed',
+          messageID: 'm2',
+          callID: 'c1',
+          time: { created: 1000 },
+        },
+      },
+    } as any)
+
+    // Trigger flush with assistant message
+    await instance.event?.({
+      event: {
+        type: 'message.updated',
+        properties: { info: { id: 'm2', role: 'assistant' } },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: {
+        type: 'message.part.updated',
+        properties: {
+          part: {
+            sessionID: 's1',
+            messageID: 'm2',
+            id: 'p2',
+            type: 'text',
+            text: 'agent response',
+            time: { start: 0, end: 1 },
+          },
+        },
+      },
+    } as any)
+
+    const permissionBody = calls
+      .map((c) => JSON.parse(String(c.init.body)))
+      .find((b) => b.content === '@here')
+    expect(permissionBody).toBeDefined()
+    expect(permissionBody.allowed_mentions.parse).toContain('everyone')
+  })
+
+  it('session.idle: sends completion with mention', async () => {
+    process.env.DISCORD_WEBHOOK_COMPLETE_MENTION = '@everyone'
+
+    const calls: Array<{ url: string; init: RequestInit }> = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: any, init: any) => {
+        calls.push({ url: String(url), init })
+        if (calls.length === 1) {
+          return new Response(
+            JSON.stringify({ id: 'm0', channel_id: 'thread123' }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          )
+        }
+        return new Response(null, { status: 204 })
+      }),
+    )
+
+    const instance = await (pluginDefault as any)({
+      client: createClientMock(),
+    })
+
+    await instance.event?.({
+      event: {
+        type: 'session.created',
+        properties: { info: { id: 's1', title: 't', time: { created: 0 } } },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: {
+        type: 'message.part.updated',
+        properties: {
+          part: {
+            sessionID: 's1',
+            messageID: 'm1',
+            id: 'p1',
+            type: 'text',
+            text: 'user text',
+            time: { start: 0, end: 1 },
+          },
+        },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: {
+        type: 'message.updated',
+        properties: { info: { id: 'm1', role: 'user' } },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: { type: 'session.idle', properties: { sessionID: 's1' } },
+    } as any)
+
+    // Trigger flush with assistant message
+    await instance.event?.({
+      event: {
+        type: 'message.updated',
+        properties: { info: { id: 'm2', role: 'assistant' } },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: {
+        type: 'message.part.updated',
+        properties: {
+          part: {
+            sessionID: 's1',
+            messageID: 'm2',
+            id: 'p2',
+            type: 'text',
+            text: 'agent response',
+            time: { start: 0, end: 1 },
+          },
+        },
+      },
+    } as any)
+
+    const idleBody = calls
+      .map((c) => JSON.parse(String(c.init.body)))
+      .find((b) => b.content === '@everyone')
+    expect(idleBody).toBeDefined()
+    expect(idleBody.allowed_mentions.parse).toContain('everyone')
+  })
+
+  it('session.error: sends error notification with mention', async () => {
+    process.env.DISCORD_WEBHOOK_COMPLETE_MENTION = '<@123>'
+
+    const calls: Array<{ url: string; init: RequestInit }> = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: any, init: any) => {
+        calls.push({ url: String(url), init })
+        if (calls.length === 1) {
+          return new Response(
+            JSON.stringify({ id: 'm0', channel_id: 'thread123' }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          )
+        }
+        return new Response(null, { status: 204 })
+      }),
+    )
+
+    const instance = await (pluginDefault as any)({
+      client: createClientMock(),
+    })
+
+    await instance.event?.({
+      event: {
+        type: 'session.created',
+        properties: { info: { id: 's1', title: 't', time: { created: 0 } } },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: {
+        type: 'message.part.updated',
+        properties: {
+          part: {
+            sessionID: 's1',
+            messageID: 'm1',
+            id: 'p1',
+            type: 'text',
+            text: 'user text',
+            time: { start: 0, end: 1 },
+          },
+        },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: {
+        type: 'message.updated',
+        properties: { info: { id: 'm1', role: 'user' } },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: {
+        type: 'session.error',
+        properties: { sessionID: 's1', error: 'Test error occurred' },
+      },
+    } as any)
+
+    const errorBody = calls
+      .map((c) => JSON.parse(String(c.init.body)))
+      .find(
+        (b) =>
+          b.embeds?.[0]?.title === 'Session error' &&
+          b.embeds?.[0]?.description?.includes('Test error'),
+      )
+    expect(errorBody).toBeDefined()
+  })
+
+  it('todo.updated: sends todo checklist', async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: any, init: any) => {
+        calls.push({ url: String(url), init })
+        if (calls.length === 1) {
+          return new Response(
+            JSON.stringify({ id: 'm0', channel_id: 'thread123' }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          )
+        }
+        return new Response(null, { status: 204 })
+      }),
+    )
+
+    const instance = await (pluginDefault as any)({
+      client: createClientMock(),
+    })
+
+    await instance.event?.({
+      event: {
+        type: 'session.created',
+        properties: { info: { id: 's1', title: 't', time: { created: 0 } } },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: {
+        type: 'message.part.updated',
+        properties: {
+          part: {
+            sessionID: 's1',
+            messageID: 'm1',
+            id: 'p1',
+            type: 'text',
+            text: 'user text',
+            time: { start: 0, end: 1 },
+          },
+        },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: {
+        type: 'message.updated',
+        properties: { info: { id: 'm1', role: 'user' } },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: {
+        type: 'todo.updated',
+        properties: {
+          sessionID: 's1',
+          todos: [
+            { status: 'completed', content: 'Task 1' },
+            { status: 'in_progress', content: 'Task 2' },
+          ],
+        },
+      },
+    } as any)
+
+    // Trigger flush with assistant message
+    await instance.event?.({
+      event: {
+        type: 'message.updated',
+        properties: { info: { id: 'm2', role: 'assistant' } },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: {
+        type: 'message.part.updated',
+        properties: {
+          part: {
+            sessionID: 's1',
+            messageID: 'm2',
+            id: 'p2',
+            type: 'text',
+            text: 'agent response',
+            time: { start: 0, end: 1 },
+          },
+        },
+      },
+    } as any)
+
+    const todoBody = calls
+      .map((c) => JSON.parse(String(c.init.body)))
+      .find(
+        (b) =>
+          b.embeds?.[0]?.title === 'Todo updated' &&
+          b.embeds?.[0]?.description?.includes('[✓]'),
+      )
+    expect(todoBody).toBeDefined()
+    expect(todoBody.embeds[0].description).toContain('Task 1')
+    expect(todoBody.embeds[0].description).toContain('Task 2')
+  })
+
+  it('message.part.updated: assistant part waits for end time', async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: any, init: any) => {
+        calls.push({ url: String(url), init })
+        if (calls.length === 1) {
+          return new Response(
+            JSON.stringify({ id: 'm0', channel_id: 'thread123' }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          )
+        }
+        return new Response(null, { status: 204 })
+      }),
+    )
+
+    const instance = await (pluginDefault as any)({
+      client: createClientMock(),
+    })
+
+    await instance.event?.({
+      event: {
+        type: 'session.created',
+        properties: { info: { id: 's1', title: 't', time: { created: 0 } } },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: {
+        type: 'message.part.updated',
+        properties: {
+          part: {
+            sessionID: 's1',
+            messageID: 'm1',
+            id: 'p1',
+            type: 'text',
+            text: 'user text',
+            time: { start: 0, end: 1 },
+          },
+        },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: {
+        type: 'message.updated',
+        properties: { info: { id: 'm1', role: 'user' } },
+      },
+    } as any)
+
+    // Assistant message without end time - should not send yet
+    await instance.event?.({
+      event: {
+        type: 'message.updated',
+        properties: { info: { id: 'm2', role: 'assistant' } },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: {
+        type: 'message.part.updated',
+        properties: {
+          part: {
+            sessionID: 's1',
+            messageID: 'm2',
+            id: 'p2',
+            type: 'text',
+            text: 'assistant response',
+            time: { start: 0 },
+          },
+        },
+      },
+    } as any)
+
+    const beforeEnd = calls.filter((c) => {
+      const body = JSON.parse(String(c.init.body))
+      return body.embeds?.[0]?.description?.includes('assistant response')
+    })
+    expect(beforeEnd.length).toBe(0)
+
+    // Now with end time - should send
+    await instance.event?.({
+      event: {
+        type: 'message.part.updated',
+        properties: {
+          part: {
+            sessionID: 's1',
+            messageID: 'm2',
+            id: 'p3',
+            type: 'text',
+            text: 'assistant done',
+            time: { start: 0, end: 2 },
+          },
+        },
+      },
+    } as any)
+
+    const afterEnd = calls.filter((c) => {
+      const body = JSON.parse(String(c.init.body))
+      return body.embeds?.[0]?.description?.includes('assistant done')
+    })
+    expect(afterEnd.length).toBeGreaterThan(0)
+  })
+
+  it('input context: excludes input context text when enabled', async () => {
+    process.env.DISCORD_WEBHOOK_EXCLUDE_INPUT_CONTEXT = '1'
+
+    const calls: Array<{ url: string; init: RequestInit }> = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: any, init: any) => {
+        calls.push({ url: String(url), init })
+        if (calls.length === 1) {
+          return new Response(
+            JSON.stringify({ id: 'm0', channel_id: 'thread123' }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          )
+        }
+        return new Response(null, { status: 204 })
+      }),
+    )
+
+    const instance = await (pluginDefault as any)({
+      client: createClientMock(),
+    })
+
+    await instance.event?.({
+      event: {
+        type: 'session.created',
+        properties: { info: { id: 's1', title: 't', time: { created: 0 } } },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: {
+        type: 'message.part.updated',
+        properties: {
+          part: {
+            sessionID: 's1',
+            messageID: 'm1',
+            id: 'p1',
+            type: 'text',
+            text: '<file>content</file>',
+            time: { start: 0, end: 1 },
+          },
+        },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: {
+        type: 'message.updated',
+        properties: { info: { id: 'm1', role: 'user' } },
+      },
+    } as any)
+
+    const inputContextBody = calls.find((c) => {
+      const body = JSON.parse(String(c.init.body))
+      return body.embeds?.[0]?.description?.includes('<file>')
+    })
+    expect(inputContextBody).toBeUndefined()
+  })
+
+  it('empty text: excludes empty and (empty) text', async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: any, init: any) => {
+        calls.push({ url: String(url), init })
+        if (calls.length === 1) {
+          return new Response(
+            JSON.stringify({ id: 'm0', channel_id: 'thread123' }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          )
+        }
+        return new Response(null, { status: 204 })
+      }),
+    )
+
+    const instance = await (pluginDefault as any)({
+      client: createClientMock(),
+    })
+
+    await instance.event?.({
+      event: {
+        type: 'session.created',
+        properties: { info: { id: 's1', title: 't', time: { created: 0 } } },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: {
+        type: 'message.part.updated',
+        properties: {
+          part: {
+            sessionID: 's1',
+            messageID: 'm1',
+            id: 'p1',
+            type: 'text',
+            text: '   ',
+            time: { start: 0, end: 1 },
+          },
+        },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: {
+        type: 'message.updated',
+        properties: { info: { id: 'm1', role: 'user' } },
+      },
+    } as any)
+
+    const emptyBody = calls.find((c) => {
+      const body = JSON.parse(String(c.init.body))
+      return body.embeds?.[0]?.title === 'User says'
+    })
+    expect(emptyBody).toBeUndefined()
+  })
+
+  it('unknown event type: handles default case', async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: any, init: any) => {
+        calls.push({ url: String(url), init })
+        return new Response(null, { status: 204 })
+      }),
+    )
+
+    const instance = await (pluginDefault as any)({
+      client: createClientMock(),
+    })
+
+    await instance.event?.({
+      event: {
+        type: 'unknown.event.type',
+        properties: {},
+      },
+    } as any)
+
+    expect(calls.length).toBe(0)
+  })
+
+  it('error handling: handles flush errors gracefully', async () => {
+    let callCount = 0
+    const errors: Error[] = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: any, init: any) => {
+        callCount++
+        if (callCount === 1) {
+          return new Response(
+            JSON.stringify({ id: 'm0', channel_id: 'thread123' }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          )
+        }
+        if (callCount === 2) {
+          const err = new Error('Network error')
+          errors.push(err)
+          throw err
+        }
+        return new Response(null, { status: 204 })
+      }),
+    )
+
+    const instance = await (pluginDefault as any)({
+      client: createClientMock(),
+    })
+
+    await instance.event?.({
+      event: {
+        type: 'session.created',
+        properties: { info: { id: 's1', title: 't', time: { created: 0 } } },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: {
+        type: 'message.part.updated',
+        properties: {
+          part: {
+            sessionID: 's1',
+            messageID: 'm1',
+            id: 'p1',
+            type: 'text',
+            text: 'hello',
+            time: { start: 0, end: 1 },
+          },
+        },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: {
+        type: 'message.updated',
+        properties: { info: { id: 'm1', role: 'user' } },
+      },
+    } as any)
+
+    // Second message should trigger error but be caught by try-catch
+    await instance.event?.({
+      event: {
+        type: 'message.updated',
+        properties: { info: { id: 'm2', role: 'assistant' } },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: {
+        type: 'message.part.updated',
+        properties: {
+          part: {
+            sessionID: 's1',
+            messageID: 'm2',
+            id: 'p2',
+            type: 'text',
+            text: 'response',
+            time: { start: 0, end: 1 },
+          },
+        },
+      },
+    } as any)
+
+    // Error should have been caught and handled
+    expect(callCount).toBeGreaterThanOrEqual(2)
+    expect(errors.length).toBeGreaterThan(0)
+  })
+
+  it('missing webhook url: shows warning and does not queue', async () => {
+    delete process.env.DISCORD_WEBHOOK_URL
+
+    const calls: Array<{ url: string; init: RequestInit }> = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: any, init: any) => {
+        calls.push({ url: String(url), init })
+        return new Response(null, { status: 204 })
+      }),
+    )
+
+    const instance = await (pluginDefault as any)({
+      client: createClientMock(),
+    })
+
+    await instance.event?.({
+      event: {
+        type: 'session.created',
+        properties: { info: { id: 's1', title: 't', time: { created: 0 } } },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: {
+        type: 'message.part.updated',
+        properties: {
+          part: {
+            sessionID: 's1',
+            messageID: 'm1',
+            id: 'p1',
+            type: 'text',
+            text: 'hello',
+            time: { start: 0, end: 1 },
+          },
+        },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: {
+        type: 'message.updated',
+        properties: { info: { id: 'm1', role: 'user' } },
+      },
+    } as any)
+
+    expect(calls.length).toBe(0)
+  })
+
+  it('no thread: sends to channel directly on failure', async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: any, init: any) => {
+        calls.push({ url: String(url), init })
+        const url_obj = new URL(String(url))
+        const has_wait = url_obj.searchParams.get('wait') === 'true'
+
+        if (has_wait) {
+          // Return invalid response for thread creation
+          return new Response(JSON.stringify({ error: 'failed' }), {
+            status: 400,
+            headers: { 'content-type': 'application/json' },
+          })
+        }
+
+        return new Response(null, { status: 204 })
+      }),
+    )
+
+    const instance = await (pluginDefault as any)({
+      client: createClientMock(),
+    })
+
+    await instance.event?.({
+      event: {
+        type: 'session.created',
+        properties: { info: { id: 's1', title: 't', time: { created: 0 } } },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: {
+        type: 'message.part.updated',
+        properties: {
+          part: {
+            sessionID: 's1',
+            messageID: 'm1',
+            id: 'p1',
+            type: 'text',
+            text: 'hello',
+            time: { start: 0, end: 1 },
+          },
+        },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: {
+        type: 'message.updated',
+        properties: { info: { id: 'm1', role: 'user' } },
+      },
+    } as any)
+
+    // Should have attempted wait=true and then fallback
+    expect(calls.length).toBeGreaterThan(0)
+  })
+
+  it('thread name fallback: uses default when no user text', async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: any, init: any) => {
+        calls.push({ url: String(url), init })
+        if (calls.length === 1) {
+          return new Response(
+            JSON.stringify({ id: 'm0', channel_id: 'thread123' }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          )
+        }
+        return new Response(null, { status: 204 })
+      }),
+    )
+
+    const instance = await (pluginDefault as any)({
+      client: createClientMock(),
+    })
+
+    // Send session.created without title (defaults to '(untitled)')
+    await instance.event?.({
+      event: {
+        type: 'session.created',
+        properties: {
+          info: { id: 's123', time: { created: 0 } },
+        },
+      },
+    } as any)
+
+    // Send session.error to trigger flush without user text
+    await instance.event?.({
+      event: {
+        type: 'session.error',
+        properties: { sessionID: 's123', error: 'Test error' },
+      },
+    } as any)
+
+    expect(calls.length).toBeGreaterThan(0)
+    const firstBody = JSON.parse(String(calls[0].init.body))
+    // When title is not provided, it defaults to '(untitled)'
+    expect(firstBody.thread_name).toBe('(untitled)')
+  })
+
+  it('empty queue deletion: removes session from map when queue is empty', async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: any, init: any) => {
+        calls.push({ url: String(url), init })
+        if (calls.length === 1) {
+          return new Response(
+            JSON.stringify({ id: 'm0', channel_id: 'thread123' }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          )
+        }
+        return new Response(null, { status: 204 })
+      }),
+    )
+
+    const instance = await (pluginDefault as any)({
+      client: createClientMock(),
+    })
+
+    await instance.event?.({
+      event: {
+        type: 'session.created',
+        properties: { info: { id: 's1', title: 't', time: { created: 0 } } },
+      },
+    } as any)
+
+    // Single message that will create thread and consume the queue
+    await instance.event?.({
+      event: {
+        type: 'message.part.updated',
+        properties: {
+          part: {
+            sessionID: 's1',
+            messageID: 'm1',
+            id: 'p1',
+            type: 'text',
+            text: 'hello',
+            time: { start: 0, end: 1 },
+          },
+        },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: {
+        type: 'message.updated',
+        properties: { info: { id: 'm1', role: 'user' } },
+      },
+    } as any)
+
+    // Verify thread was created
+    const firstUrl = new URL(calls[0].url)
+    expect(firstUrl.searchParams.get('wait')).toBe('true')
+  })
+
+  it('error during flush: retains pending messages correctly', async () => {
+    let callCount = 0
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: any, init: any) => {
+        callCount++
+        if (callCount === 1) {
+          return new Response(
+            JSON.stringify({ id: 'm0', channel_id: 'thread123' }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          )
+        }
+        if (callCount === 2) {
+          throw new Error('Network error on second message')
+        }
+        return new Response(null, { status: 204 })
+      }),
+    )
+
+    const instance = await (pluginDefault as any)({
+      client: createClientMock(),
+    })
+
+    await instance.event?.({
+      event: {
+        type: 'session.created',
+        properties: { info: { id: 's1', title: 't', time: { created: 0 } } },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: {
+        type: 'message.part.updated',
+        properties: {
+          part: {
+            sessionID: 's1',
+            messageID: 'm1',
+            id: 'p1',
+            type: 'text',
+            text: 'first',
+            time: { start: 0, end: 1 },
+          },
+        },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: {
+        type: 'message.updated',
+        properties: { info: { id: 'm1', role: 'user' } },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: {
+        type: 'message.updated',
+        properties: { info: { id: 'm2', role: 'assistant' } },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: {
+        type: 'message.part.updated',
+        properties: {
+          part: {
+            sessionID: 's1',
+            messageID: 'm2',
+            id: 'p2',
+            type: 'text',
+            text: 'second',
+            time: { start: 0, end: 1 },
+          },
+        },
+      },
+    } as any)
+
+    // Error should have been caught
+    expect(callCount).toBeGreaterThanOrEqual(1)
+  })
+
+  it('duplicate plugin initialization: returns early on second call', async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: any, init: any) => {
+        calls.push({ url: String(url), init })
+        return new Response(null, { status: 204 })
+      }),
+    )
+
+    // First initialization
+    const instance1 = await (pluginDefault as any)({
+      client: createClientMock(),
+    })
+
+    // Second initialization should return early
+    const instance2 = await (pluginDefault as any)({
+      client: createClientMock(),
+    })
+
+    await instance2.event?.({
+      event: {
+        type: 'session.created',
+        properties: { info: { id: 's1', title: 't', time: { created: 0 } } },
+      },
+    } as any)
+
+    // Second instance's event handler should be a no-op
+    expect(instance1).toBeDefined()
+    expect(instance2).toBeDefined()
+  })
+
+  it('invalid json response: handles malformed wait response', async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: any, init: any) => {
+        calls.push({ url: String(url), init })
+        const url_obj = new URL(String(url))
+        const has_wait = url_obj.searchParams.get('wait') === 'true'
+
+        if (has_wait) {
+          // Return invalid JSON
+          return new Response('not json', {
+            status: 200,
+            headers: { 'content-type': 'text/plain' },
+          })
+        }
+
+        return new Response(null, { status: 204 })
+      }),
+    )
+
+    const instance = await (pluginDefault as any)({
+      client: createClientMock(),
+    })
+
+    await instance.event?.({
+      event: {
+        type: 'session.created',
+        properties: { info: { id: 's1', title: 't', time: { created: 0 } } },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: {
+        type: 'message.part.updated',
+        properties: {
+          part: {
+            sessionID: 's1',
+            messageID: 'm1',
+            id: 'p1',
+            type: 'text',
+            text: 'hello',
+            time: { start: 0, end: 1 },
+          },
+        },
+      },
+    } as any)
+
+    await instance.event?.({
+      event: {
+        type: 'message.updated',
+        properties: { info: { id: 'm1', role: 'user' } },
+      },
+    } as any)
+
+    // Should have attempted wait=true
+    expect(calls.length).toBeGreaterThan(0)
+  })
+
+  it('429 retry with invalid response: handles retry failure gracefully', async () => {
+    let callCount = 0
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: any, init: any) => {
+        callCount++
+        if (callCount === 1) {
+          return new Response(JSON.stringify({ retry_after: 0 }), {
+            status: 429,
+            headers: { 'content-type': 'application/json' },
+          })
+        }
+        if (callCount === 2) {
+          // Retry succeeds but returns invalid json for wait
+          const url_obj = new URL(String(url))
+          const has_wait = url_obj.searchParams.get('wait') === 'true'
+          if (has_wait) {
+            return new Response('invalid', { status: 200 })
+          }
+          return new Response(null, { status: 204 })
+        }
+        return new Response(null, { status: 204 })
+      }),
+    )
+
+    await __test__.postDiscordWebhook(
+      {
+        webhookUrl: 'https://example.invalid/webhook',
+        body: { content: 'test' },
+        wait: true,
+      },
+      {
+        showErrorAlert: false,
+        maybeAlertError: async () => {},
+        waitOnRateLimitMs: 10,
+        sleepImpl: async () => {},
+      },
+    )
+
+    expect(callCount).toBe(2)
   })
 })

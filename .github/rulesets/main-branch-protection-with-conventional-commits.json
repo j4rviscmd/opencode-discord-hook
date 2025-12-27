@@ -1,0 +1,60 @@
+{
+  "name": "Main Branch Protection (with Conventional Commits)",
+  "target": "branch",
+  "enforcement": "active",
+  "bypass_actors": [
+    {
+      "actor_id": 5,
+      "actor_type": "RepositoryRole",
+      "bypass_mode": "pull_request"
+    }
+  ],
+  "conditions": {
+    "ref_name": {
+      "include": ["refs/heads/main"],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {
+      "type": "update",
+      "parameters": {
+        "update_allows_fetch_and_merge": true
+      }
+    },
+    {
+      "type": "deletion"
+    },
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 1,
+        "dismiss_stale_reviews_on_push": true,
+        "require_code_owner_review": false,
+        "require_last_push_approval": true,
+        "required_review_thread_resolution": true
+      }
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "required_status_checks": [
+          {
+            "context": "Publish",
+            "integration_id": null
+          }
+        ]
+      }
+    },
+    {
+      "type": "commit_message_pattern",
+      "parameters": {
+        "name": "Conventional Commits",
+        "negate": false,
+        "operator": "starts_with",
+        "pattern": "^(feat|fix|docs|style|refactor|test|chore|perf|ci|revert)(\\(.+\\))?:.+"
+      }
+    }
+  ]
+}
