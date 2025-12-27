@@ -804,11 +804,7 @@ const plugin: Plugin = async ({ client }) => {
                     ['directory', info?.directory],
                     ['share', shareUrl],
                   ],
-                  withForcedSendParams(sendParams, [
-                    'sessionID',
-                    'projectID',
-                    'directory',
-                  ]),
+                  withForcedSendParams(sendParams, ['sessionID']),
                 ),
               ),
             }

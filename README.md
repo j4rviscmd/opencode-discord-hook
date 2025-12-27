@@ -67,7 +67,7 @@ Optional:
   - **Allowed keys**: `sessionID`, `permissionID`, `type`, `pattern`, `messageID`, `callID`, `partID`, `role`, `directory`, `projectID`
   - **Default behavior** (unset/empty): all fields are disabled (nothing sent)
   - **To send all fields**: list all keys explicitly
-  - **Note**: `session.created` always includes `sessionID`, `projectID`, `directory` regardless
+  - **Note**: `session.created` always includes `sessionID` regardless
 
 ## Notes / behavior
 

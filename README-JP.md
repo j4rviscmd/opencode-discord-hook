@@ -65,7 +65,7 @@ OpenCode を再起動してください。
   - **指定可能キー**: `sessionID`, `permissionID`, `type`, `pattern`, `messageID`, `callID`, `partID`, `role`, `directory`, `projectID`
   - **デフォルト動作**（未設定・空文字）: 全て無効化（何も送信しない）
   - **全て送信したい場合**: 全キーを列挙してください
-  - **注意**: `session.created` は `DISCORD_SEND_PARAMS` に関わらず `sessionID`, `projectID`, `directory` を必ず含みます
+  - **注意**: `session.created` は `DISCORD_SEND_PARAMS` に関わらず `sessionID` を必ず含みます
 
 ## 仕様メモ
 
