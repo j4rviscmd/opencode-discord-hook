@@ -61,7 +61,11 @@ OpenCode を再起動してください。
 - `DISCORD_WEBHOOK_PERMISSION_MENTION`: `permission.updated` の通知本文に付けるメンション（`DISCORD_WEBHOOK_COMPLETE_MENTION` へのフォールバックなし。`@everyone` または `@here` のみ許容。Forum webhook の仕様上、ping は常に発生しない）
 - `DISCORD_WEBHOOK_EXCLUDE_INPUT_CONTEXT`: `1` のとき input context（`<file>` から始まる user `text` part）を通知しない（デフォルト: `1` / `0` で無効化）
 - `DISCORD_WEBHOOK_SHOW_ERROR_ALERT`: `1` のとき Discord webhook の送信が失敗した場合に OpenCode TUI のトーストを表示します（429 含む）（デフォルト: `1` / `0` で無効化）
-- `DISCORD_SEND_PARAMS`: embed の fields として送るキーをカンマ区切りで指定。指定可能キー: `sessionID`, `permissionID`, `type`, `pattern`, `messageID`, `callID`, `partID`, `role`, `directory`, `projectID`。未設定・空文字・空要素のみの場合は全て選択。`session.created` は `DISCORD_SEND_PARAMS` に関わらず `sessionID`, `projectID`, `directory` を必ず含みます。
+- `DISCORD_SEND_PARAMS`: embed の fields として送るキーをカンマ区切りで指定。
+  - **指定可能キー**: `sessionID`, `permissionID`, `type`, `pattern`, `messageID`, `callID`, `partID`, `role`, `directory`, `projectID`
+  - **デフォルト動作**（未設定・空文字）: 全て無効化（何も送信しない）
+  - **全て送信したい場合**: 全キーを列挙してください
+  - **注意**: `session.created` は `DISCORD_SEND_PARAMS` に関わらず `sessionID`, `projectID`, `directory` を必ず含みます
 
 ## 仕様メモ
 
