@@ -707,17 +707,6 @@ const plugin: Plugin = async ({ client }) => {
     }
   }
 
-  function setIfChanged(
-    map: Map<string, string>,
-    key: string,
-    next: string,
-  ): boolean {
-    const prev = map.get(key)
-    if (prev === next) return false
-    map.set(key, next)
-    return true
-  }
-
   return {
     event: async ({ event }) => {
       try {
