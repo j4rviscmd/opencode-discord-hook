@@ -71,7 +71,7 @@ export DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/..."
 | `DISCORD_WEBHOOK_SHOW_ERROR_ALERT`      | ❌ No    | `1`                                            | Set to `0` to disable error toast notifications                                                                      |
 | `DISCORD_SEND_PARAMS`                   | ❌ No    | -                                              | Comma-separated embed fields: `sessionID,permissionID,type,pattern,messageID,callID,partID,role,directory,projectID` |
 | `DISCORD_WEBHOOK_FALLBACK_URL`          | ❌ No    | -                                              | Fallback webhook URL for text channel (sends mentions here too for guaranteed ping)                                  |
-| `DISCORD_NOTIFY_QUEUE_DB_PATH`          | ❌ No    | `~/.config/opencode/discord-notify-queue.db`   | Custom path for the persistent queue database (automatically uses `:memory:` in test environment)                    |
+| `DISCORD_NOTIFY_QUEUE_DB_PATH`          | ❌ No    | `~/.config/opencode/discord-notify-queue.db`   | Custom path for the persistent queue database                                                                        |
 
 ### Example Configuration
 
