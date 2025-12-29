@@ -60,17 +60,18 @@ export DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/..."
 
 ### Environment Variables
 
-| Variable                                | Required | Default | Description                                                                                                          |
-| --------------------------------------- | -------- | ------- | -------------------------------------------------------------------------------------------------------------------- |
-| `DISCORD_WEBHOOK_URL`                   | ✅ Yes   | -       | Discord webhook URL. Plugin is disabled if not set.                                                                  |
-| `DISCORD_WEBHOOK_USERNAME`              | ❌ No    | -       | Custom username for webhook posts                                                                                    |
-| `DISCORD_WEBHOOK_AVATAR_URL`            | ❌ No    | -       | Custom avatar URL for webhook posts                                                                                  |
-| `DISCORD_WEBHOOK_COMPLETE_MENTION`      | ❌ No    | -       | Add `@everyone` or `@here` to session completion/error notifications                                                 |
-| `DISCORD_WEBHOOK_PERMISSION_MENTION`    | ❌ No    | -       | Add `@everyone` or `@here` to permission request notifications                                                       |
-| `DISCORD_WEBHOOK_EXCLUDE_INPUT_CONTEXT` | ❌ No    | `1`     | Set to `0` to include file context in notifications                                                                  |
-| `DISCORD_WEBHOOK_SHOW_ERROR_ALERT`      | ❌ No    | `1`     | Set to `0` to disable error toast notifications                                                                      |
-| `DISCORD_SEND_PARAMS`                   | ❌ No    | -       | Comma-separated embed fields: `sessionID,permissionID,type,pattern,messageID,callID,partID,role,directory,projectID` |
-| `DISCORD_WEBHOOK_FALLBACK_URL`          | ❌ No    | -       | Fallback webhook URL for text channel (sends mentions here too for guaranteed ping)                                  |
+| Variable                                | Required | Default                                        | Description                                                                                                          |
+| --------------------------------------- | -------- | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `DISCORD_WEBHOOK_URL`                   | ✅ Yes   | -                                              | Discord webhook URL. Plugin is disabled if not set.                                                                  |
+| `DISCORD_WEBHOOK_USERNAME`              | ❌ No    | -                                              | Custom username for webhook posts                                                                                    |
+| `DISCORD_WEBHOOK_AVATAR_URL`            | ❌ No    | -                                              | Custom avatar URL for webhook posts                                                                                  |
+| `DISCORD_WEBHOOK_COMPLETE_MENTION`      | ❌ No    | -                                              | Add `@everyone` or `@here` to session completion/error notifications                                                 |
+| `DISCORD_WEBHOOK_PERMISSION_MENTION`    | ❌ No    | -                                              | Add `@everyone` or `@here` to permission request notifications                                                       |
+| `DISCORD_WEBHOOK_EXCLUDE_INPUT_CONTEXT` | ❌ No    | `1`                                            | Set to `0` to include file context in notifications                                                                  |
+| `DISCORD_WEBHOOK_SHOW_ERROR_ALERT`      | ❌ No    | `1`                                            | Set to `0` to disable error toast notifications                                                                      |
+| `DISCORD_SEND_PARAMS`                   | ❌ No    | -                                              | Comma-separated embed fields: `sessionID,permissionID,type,pattern,messageID,callID,partID,role,directory,projectID` |
+| `DISCORD_WEBHOOK_FALLBACK_URL`          | ❌ No    | -                                              | Fallback webhook URL for text channel (sends mentions here too for guaranteed ping)                                  |
+| `DISCORD_NOTIFY_QUEUE_DB_PATH`          | ❌ No    | `~/.config/opencode/discord-notify-queue.db`   | Custom path for the persistent queue database (automatically uses `:memory:` in test environment)                    |
 
 ### Example Configuration
 
@@ -164,16 +165,41 @@ This provides context when viewing notifications in the text channel.
 <details>
 <summary><strong>Error Handling & Rate Limits</strong></summary>
 
+### Persistent Queue (v0.7.0+)
+
+All notifications are stored in a local SQLite database before sending:
+
+- **Database location**: `~/.config/opencode/discord-notify-queue.db` (customizable via `DISCORD_NOTIFY_QUEUE_DB_PATH`)
+- **Worker process**: Automatically processes queued messages in the background
+- **Auto-start**: Worker starts when first user message is sent
+- **Auto-stop**: Worker stops when queue is empty
+- **Batch size**: Processes 1 message at a time to ensure thread ID consistency
+
+**Benefits**:
+- Messages survive OpenCode restarts
+- Prevents data loss during network issues
+- Ensures correct thread naming with user's first message
+
+### Retry Logic
+
+All failed requests are automatically retried with the following behavior:
+
+- **Max retries**: 5 attempts per message
+- **Retry tracking**: Each retry updates `retry_count` and `last_error` in the queue database
+- **Warning notifications**: Shows toast with retry count (e.g., "Retry 3/5. Error: ...")
+- **Final failure**: After 5 failed retries, message is deleted and error notification is shown
+
 ### HTTP 429 (Rate Limit)
 
 - Waits for `retry_after` seconds (or ~10s if not provided)
-- Retries once
-- Shows warning toast if still fails
+- Automatically retries up to 5 times before discarding
+- Messages remain in queue database during retry period
 
-### Failed Requests
+### Other Failed Requests
 
 - Shows OpenCode TUI toast notification (controlled by `DISCORD_WEBHOOK_SHOW_ERROR_ALERT`)
 - Logs error details for debugging
+- Messages persist in queue for up to 5 retry attempts
 
 </details>
 
@@ -225,7 +251,7 @@ Main implementation: `src/index.ts`
 - [ ] Support multiple webhooks for routing by event type
 - [ ] Customizable notification templates
 - [ ] Configuration file support (e.g., `opencode-discord-notify.config.json`)
-- [ ] Enhanced rate limit handling (smarter retry logic, message queuing)
+- [x] Enhanced rate limit handling (smarter retry logic, message queuing)
 - [x] CI/CD (automated linting, formatting, testing)
 
 ## Contributing

@@ -5,3 +5,7 @@ dist/
 .opencode/node_modules/
 .opencode/logs/
 coverage/
+
+# npm pack artifacts
+*.tgz
+package/

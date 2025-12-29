@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import pluginDefault from './index'
 
@@ -10,6 +10,16 @@ const createClientMock = () => {
       showToast: vi.fn(async () => {}),
     },
   } as any
+}
+
+async function waitForQueueWorker(instance: any, timeout = 5000) {
+  const start = Date.now()
+  while (instance.__test__.queueWorker.running) {
+    if (Date.now() - start > timeout) {
+      throw new Error('QueueWorker timeout')
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
 }
 
 describe('__test__.toIsoTimestamp', () => {
@@ -273,6 +283,8 @@ describe('__test__.parseSendParams', () => {
 })
 
 describe('plugin integration', () => {
+  let originalFetch: typeof globalThis.fetch
+
   beforeEach(() => {
     delete (globalThis as any).__opencode_discord_notify_registered__
 
@@ -281,29 +293,34 @@ describe('plugin integration', () => {
 
     delete process.env.DISCORD_WEBHOOK_COMPLETE_MENTION
     delete process.env.DISCORD_WEBHOOK_PERMISSION_MENTION
+
+    // Save original fetch
+    originalFetch = globalThis.fetch
+  })
+
+  afterEach(() => {
+    // Restore original fetch
+    globalThis.fetch = originalFetch
   })
 
   it('Forum webhook: creates thread when wait=true and continues with thread_id', async () => {
     const calls: Array<{ url: string; init: RequestInit }> = []
 
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: any, init: any) => {
-        calls.push({ url: String(url), init })
+    globalThis.fetch = vi.fn(async (url: any, init: any) => {
+      calls.push({ url: String(url), init })
 
-        if (calls.length === 1) {
-          return new Response(
-            JSON.stringify({ id: 'm0', channel_id: 'thread123' }),
-            {
-              status: 200,
-              headers: { 'content-type': 'application/json' },
-            },
-          )
-        }
+      if (calls.length === 1) {
+        return new Response(
+          JSON.stringify({ id: 'm0', channel_id: 'thread123' }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        )
+      }
 
-        return new Response(null, { status: 204 })
-      }),
-    )
+      return new Response(null, { status: 204 })
+    }) as any
 
     const instance = await (pluginDefault as any)({
       client: createClientMock(),
@@ -350,6 +367,8 @@ describe('plugin integration', () => {
       },
     } as any)
 
+    await waitForQueueWorker(instance)
+
     expect(calls.length).toBe(2)
 
     const firstUrl = new URL(calls[0].url)
@@ -367,19 +386,16 @@ describe('plugin integration', () => {
 
     const calls: Array<{ url: string; init: RequestInit }> = []
 
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: any, init: any) => {
-        calls.push({ url: String(url), init })
-        if (calls.length === 1) {
-          return new Response(
-            JSON.stringify({ id: 'm0', channel_id: 'thread123' }),
-            { status: 200, headers: { 'content-type': 'application/json' } },
-          )
-        }
-        return new Response(null, { status: 204 })
-      }),
-    )
+    globalThis.fetch = vi.fn(async (url: any, init: any) => {
+      calls.push({ url: String(url), init })
+      if (calls.length === 1) {
+        return new Response(
+          JSON.stringify({ id: 'm0', channel_id: 'thread123' }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }
+      return new Response(null, { status: 204 })
+    }) as any
 
     const instance = await (pluginDefault as any)({
       client: createClientMock(),
@@ -467,19 +483,16 @@ describe('plugin integration', () => {
 
     const calls: Array<{ url: string; init: RequestInit }> = []
 
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: any, init: any) => {
-        calls.push({ url: String(url), init })
-        if (calls.length === 1) {
-          return new Response(
-            JSON.stringify({ id: 'm0', channel_id: 'thread123' }),
-            { status: 200, headers: { 'content-type': 'application/json' } },
-          )
-        }
-        return new Response(null, { status: 204 })
-      }),
-    )
+    globalThis.fetch = vi.fn(async (url: any, init: any) => {
+      calls.push({ url: String(url), init })
+      if (calls.length === 1) {
+        return new Response(
+          JSON.stringify({ id: 'm0', channel_id: 'thread123' }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }
+      return new Response(null, { status: 204 })
+    }) as any
 
     const instance = await (pluginDefault as any)({
       client: createClientMock(),
@@ -555,19 +568,16 @@ describe('plugin integration', () => {
 
     const calls: Array<{ url: string; init: RequestInit }> = []
 
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: any, init: any) => {
-        calls.push({ url: String(url), init })
-        if (calls.length === 1) {
-          return new Response(
-            JSON.stringify({ id: 'm0', channel_id: 'thread123' }),
-            { status: 200, headers: { 'content-type': 'application/json' } },
-          )
-        }
-        return new Response(null, { status: 204 })
-      }),
-    )
+    globalThis.fetch = vi.fn(async (url: any, init: any) => {
+      calls.push({ url: String(url), init })
+      if (calls.length === 1) {
+        return new Response(
+          JSON.stringify({ id: 'm0', channel_id: 'thread123' }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }
+      return new Response(null, { status: 204 })
+    }) as any
 
     const instance = await (pluginDefault as any)({
       client: createClientMock(),
@@ -623,19 +633,16 @@ describe('plugin integration', () => {
   it('todo.updated: sends todo checklist', async () => {
     const calls: Array<{ url: string; init: RequestInit }> = []
 
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: any, init: any) => {
-        calls.push({ url: String(url), init })
-        if (calls.length === 1) {
-          return new Response(
-            JSON.stringify({ id: 'm0', channel_id: 'thread123' }),
-            { status: 200, headers: { 'content-type': 'application/json' } },
-          )
-        }
-        return new Response(null, { status: 204 })
-      }),
-    )
+    globalThis.fetch = vi.fn(async (url: any, init: any) => {
+      calls.push({ url: String(url), init })
+      if (calls.length === 1) {
+        return new Response(
+          JSON.stringify({ id: 'm0', channel_id: 'thread123' }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }
+      return new Response(null, { status: 204 })
+    }) as any
 
     const instance = await (pluginDefault as any)({
       client: createClientMock(),
@@ -708,6 +715,8 @@ describe('plugin integration', () => {
       },
     } as any)
 
+    await waitForQueueWorker(instance)
+
     const todoBody = calls
       .map((c) => JSON.parse(String(c.init.body)))
       .find(
@@ -723,19 +732,16 @@ describe('plugin integration', () => {
   it('message.part.updated: assistant part waits for end time', async () => {
     const calls: Array<{ url: string; init: RequestInit }> = []
 
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: any, init: any) => {
-        calls.push({ url: String(url), init })
-        if (calls.length === 1) {
-          return new Response(
-            JSON.stringify({ id: 'm0', channel_id: 'thread123' }),
-            { status: 200, headers: { 'content-type': 'application/json' } },
-          )
-        }
-        return new Response(null, { status: 204 })
-      }),
-    )
+    globalThis.fetch = vi.fn(async (url: any, init: any) => {
+      calls.push({ url: String(url), init })
+      if (calls.length === 1) {
+        return new Response(
+          JSON.stringify({ id: 'm0', channel_id: 'thread123' }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }
+      return new Response(null, { status: 204 })
+    }) as any
 
     const instance = await (pluginDefault as any)({
       client: createClientMock(),
@@ -818,6 +824,8 @@ describe('plugin integration', () => {
       },
     } as any)
 
+    await waitForQueueWorker(instance)
+
     const afterEnd = calls.filter((c) => {
       const body = JSON.parse(String(c.init.body))
       return body.embeds?.[0]?.description?.includes('assistant done')
@@ -830,19 +838,16 @@ describe('plugin integration', () => {
 
     const calls: Array<{ url: string; init: RequestInit }> = []
 
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: any, init: any) => {
-        calls.push({ url: String(url), init })
-        if (calls.length === 1) {
-          return new Response(
-            JSON.stringify({ id: 'm0', channel_id: 'thread123' }),
-            { status: 200, headers: { 'content-type': 'application/json' } },
-          )
-        }
-        return new Response(null, { status: 204 })
-      }),
-    )
+    globalThis.fetch = vi.fn(async (url: any, init: any) => {
+      calls.push({ url: String(url), init })
+      if (calls.length === 1) {
+        return new Response(
+          JSON.stringify({ id: 'm0', channel_id: 'thread123' }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }
+      return new Response(null, { status: 204 })
+    }) as any
 
     const instance = await (pluginDefault as any)({
       client: createClientMock(),
@@ -888,19 +893,16 @@ describe('plugin integration', () => {
   it('empty text: excludes empty and (empty) text', async () => {
     const calls: Array<{ url: string; init: RequestInit }> = []
 
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: any, init: any) => {
-        calls.push({ url: String(url), init })
-        if (calls.length === 1) {
-          return new Response(
-            JSON.stringify({ id: 'm0', channel_id: 'thread123' }),
-            { status: 200, headers: { 'content-type': 'application/json' } },
-          )
-        }
-        return new Response(null, { status: 204 })
-      }),
-    )
+    globalThis.fetch = vi.fn(async (url: any, init: any) => {
+      calls.push({ url: String(url), init })
+      if (calls.length === 1) {
+        return new Response(
+          JSON.stringify({ id: 'm0', channel_id: 'thread123' }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }
+      return new Response(null, { status: 204 })
+    }) as any
 
     const instance = await (pluginDefault as any)({
       client: createClientMock(),
@@ -946,13 +948,10 @@ describe('plugin integration', () => {
   it('unknown event type: handles default case', async () => {
     const calls: Array<{ url: string; init: RequestInit }> = []
 
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: any, init: any) => {
-        calls.push({ url: String(url), init })
-        return new Response(null, { status: 204 })
-      }),
-    )
+    globalThis.fetch = vi.fn(async (url: any, init: any) => {
+      calls.push({ url: String(url), init })
+      return new Response(null, { status: 204 })
+    }) as any
 
     const instance = await (pluginDefault as any)({
       client: createClientMock(),
@@ -972,24 +971,21 @@ describe('plugin integration', () => {
     let callCount = 0
     const errors: Error[] = []
 
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: any, init: any) => {
-        callCount++
-        if (callCount === 1) {
-          return new Response(
-            JSON.stringify({ id: 'm0', channel_id: 'thread123' }),
-            { status: 200, headers: { 'content-type': 'application/json' } },
-          )
-        }
-        if (callCount === 2) {
-          const err = new Error('Network error')
-          errors.push(err)
-          throw err
-        }
-        return new Response(null, { status: 204 })
-      }),
-    )
+    globalThis.fetch = vi.fn(async (url: any, init: any) => {
+      callCount++
+      if (callCount === 1) {
+        return new Response(
+          JSON.stringify({ id: 'm0', channel_id: 'thread123' }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }
+      if (callCount === 2) {
+        const err = new Error('Network error')
+        errors.push(err)
+        throw err
+      }
+      return new Response(null, { status: 204 })
+    }) as any
 
     const instance = await (pluginDefault as any)({
       client: createClientMock(),
@@ -1025,6 +1021,8 @@ describe('plugin integration', () => {
       },
     } as any)
 
+    await waitForQueueWorker(instance)
+
     // Second message should trigger error but be caught by try-catch
     await instance.event?.({
       event: {
@@ -1049,6 +1047,8 @@ describe('plugin integration', () => {
       },
     } as any)
 
+    await waitForQueueWorker(instance)
+
     // Error should have been caught and handled
     expect(callCount).toBeGreaterThanOrEqual(2)
     expect(errors.length).toBeGreaterThan(0)
@@ -1059,13 +1059,10 @@ describe('plugin integration', () => {
 
     const calls: Array<{ url: string; init: RequestInit }> = []
 
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: any, init: any) => {
-        calls.push({ url: String(url), init })
-        return new Response(null, { status: 204 })
-      }),
-    )
+    globalThis.fetch = vi.fn(async (url: any, init: any) => {
+      calls.push({ url: String(url), init })
+      return new Response(null, { status: 204 })
+    }) as any
 
     const instance = await (pluginDefault as any)({
       client: createClientMock(),
@@ -1107,24 +1104,21 @@ describe('plugin integration', () => {
   it('no thread: sends to channel directly on failure', async () => {
     const calls: Array<{ url: string; init: RequestInit }> = []
 
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: any, init: any) => {
-        calls.push({ url: String(url), init })
-        const url_obj = new URL(String(url))
-        const has_wait = url_obj.searchParams.get('wait') === 'true'
+    globalThis.fetch = vi.fn(async (url: any, init: any) => {
+      calls.push({ url: String(url), init })
+      const url_obj = new URL(String(url))
+      const has_wait = url_obj.searchParams.get('wait') === 'true'
 
-        if (has_wait) {
-          // Return invalid response for thread creation
-          return new Response(JSON.stringify({ error: 'failed' }), {
-            status: 400,
-            headers: { 'content-type': 'application/json' },
-          })
-        }
+      if (has_wait) {
+        // Return invalid response for thread creation
+        return new Response(JSON.stringify({ error: 'failed' }), {
+          status: 400,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
 
-        return new Response(null, { status: 204 })
-      }),
-    )
+      return new Response(null, { status: 204 })
+    }) as any
 
     const instance = await (pluginDefault as any)({
       client: createClientMock(),
@@ -1167,19 +1161,16 @@ describe('plugin integration', () => {
   it('thread name fallback: uses default when no user text', async () => {
     const calls: Array<{ url: string; init: RequestInit }> = []
 
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: any, init: any) => {
-        calls.push({ url: String(url), init })
-        if (calls.length === 1) {
-          return new Response(
-            JSON.stringify({ id: 'm0', channel_id: 'thread123' }),
-            { status: 200, headers: { 'content-type': 'application/json' } },
-          )
-        }
-        return new Response(null, { status: 204 })
-      }),
-    )
+    globalThis.fetch = vi.fn(async (url: any, init: any) => {
+      calls.push({ url: String(url), init })
+      if (calls.length === 1) {
+        return new Response(
+          JSON.stringify({ id: 'm0', channel_id: 'thread123' }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }
+      return new Response(null, { status: 204 })
+    }) as any
 
     const instance = await (pluginDefault as any)({
       client: createClientMock(),
@@ -1203,28 +1194,27 @@ describe('plugin integration', () => {
       },
     } as any)
 
+    await waitForQueueWorker(instance)
+
     expect(calls.length).toBeGreaterThan(0)
     const firstBody = JSON.parse(String(calls[0].init.body))
-    // When title is not provided, it defaults to '(untitled)'
-    expect(firstBody.thread_name).toBe('(untitled)')
+    // When title and user text are not provided, falls back to sessionID
+    expect(firstBody.thread_name).toBe('session s123')
   })
 
   it('empty queue deletion: removes session from map when queue is empty', async () => {
     const calls: Array<{ url: string; init: RequestInit }> = []
 
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: any, init: any) => {
-        calls.push({ url: String(url), init })
-        if (calls.length === 1) {
-          return new Response(
-            JSON.stringify({ id: 'm0', channel_id: 'thread123' }),
-            { status: 200, headers: { 'content-type': 'application/json' } },
-          )
-        }
-        return new Response(null, { status: 204 })
-      }),
-    )
+    globalThis.fetch = vi.fn(async (url: any, init: any) => {
+      calls.push({ url: String(url), init })
+      if (calls.length === 1) {
+        return new Response(
+          JSON.stringify({ id: 'm0', channel_id: 'thread123' }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }
+      return new Response(null, { status: 204 })
+    }) as any
 
     const instance = await (pluginDefault as any)({
       client: createClientMock(),
@@ -1269,22 +1259,19 @@ describe('plugin integration', () => {
   it('error during flush: retains pending messages correctly', async () => {
     let callCount = 0
 
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: any, init: any) => {
-        callCount++
-        if (callCount === 1) {
-          return new Response(
-            JSON.stringify({ id: 'm0', channel_id: 'thread123' }),
-            { status: 200, headers: { 'content-type': 'application/json' } },
-          )
-        }
-        if (callCount === 2) {
-          throw new Error('Network error on second message')
-        }
-        return new Response(null, { status: 204 })
-      }),
-    )
+    globalThis.fetch = vi.fn(async (url: any, init: any) => {
+      callCount++
+      if (callCount === 1) {
+        return new Response(
+          JSON.stringify({ id: 'm0', channel_id: 'thread123' }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }
+      if (callCount === 2) {
+        throw new Error('Network error on second message')
+      }
+      return new Response(null, { status: 204 })
+    }) as any
 
     const instance = await (pluginDefault as any)({
       client: createClientMock(),
@@ -1350,13 +1337,10 @@ describe('plugin integration', () => {
   it('duplicate plugin initialization: returns early on second call', async () => {
     const calls: Array<{ url: string; init: RequestInit }> = []
 
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: any, init: any) => {
-        calls.push({ url: String(url), init })
-        return new Response(null, { status: 204 })
-      }),
-    )
+    globalThis.fetch = vi.fn(async (url: any, init: any) => {
+      calls.push({ url: String(url), init })
+      return new Response(null, { status: 204 })
+    }) as any
 
     // First initialization
     const instance1 = await (pluginDefault as any)({
@@ -1383,24 +1367,21 @@ describe('plugin integration', () => {
   it('invalid json response: handles malformed wait response', async () => {
     const calls: Array<{ url: string; init: RequestInit }> = []
 
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: any, init: any) => {
-        calls.push({ url: String(url), init })
-        const url_obj = new URL(String(url))
-        const has_wait = url_obj.searchParams.get('wait') === 'true'
+    globalThis.fetch = vi.fn(async (url: any, init: any) => {
+      calls.push({ url: String(url), init })
+      const url_obj = new URL(String(url))
+      const has_wait = url_obj.searchParams.get('wait') === 'true'
 
-        if (has_wait) {
-          // Return invalid JSON
-          return new Response('not json', {
-            status: 200,
-            headers: { 'content-type': 'text/plain' },
-          })
-        }
+      if (has_wait) {
+        // Return invalid JSON
+        return new Response('not json', {
+          status: 200,
+          headers: { 'content-type': 'text/plain' },
+        })
+      }
 
-        return new Response(null, { status: 204 })
-      }),
-    )
+      return new Response(null, { status: 204 })
+    }) as any
 
     const instance = await (pluginDefault as any)({
       client: createClientMock(),
@@ -1443,28 +1424,25 @@ describe('plugin integration', () => {
   it('429 retry with invalid response: handles retry failure gracefully', async () => {
     let callCount = 0
 
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: any, init: any) => {
-        callCount++
-        if (callCount === 1) {
-          return new Response(JSON.stringify({ retry_after: 0 }), {
-            status: 429,
-            headers: { 'content-type': 'application/json' },
-          })
-        }
-        if (callCount === 2) {
-          // Retry succeeds but returns invalid json for wait
-          const url_obj = new URL(String(url))
-          const has_wait = url_obj.searchParams.get('wait') === 'true'
-          if (has_wait) {
-            return new Response('invalid', { status: 200 })
-          }
-          return new Response(null, { status: 204 })
+    globalThis.fetch = vi.fn(async (url: any, init: any) => {
+      callCount++
+      if (callCount === 1) {
+        return new Response(JSON.stringify({ retry_after: 0 }), {
+          status: 429,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      if (callCount === 2) {
+        // Retry succeeds but returns invalid json for wait
+        const url_obj = new URL(String(url))
+        const has_wait = url_obj.searchParams.get('wait') === 'true'
+        if (has_wait) {
+          return new Response('invalid', { status: 200 })
         }
         return new Response(null, { status: 204 })
-      }),
-    )
+      }
+      return new Response(null, { status: 204 })
+    }) as any
 
     await __test__.postDiscordWebhook(
       {

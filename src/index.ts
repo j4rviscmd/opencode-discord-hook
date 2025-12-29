@@ -1,4 +1,7 @@
 import type { Plugin } from '@opencode-ai/plugin'
+import { initDatabase } from './utils/db.js'
+import { PersistentQueue } from './queue/persistent-queue.js'
+import { QueueWorker } from './queue/worker.js'
 
 // ================================================================================
 // Type Definitions
@@ -24,7 +27,7 @@ type DiscordAllowedMentions = {
   users?: string[]
 }
 
-type DiscordExecuteWebhookBody = {
+export type DiscordExecuteWebhookBody = {
   content?: string
   username?: string
   avatar_url?: string
@@ -631,14 +634,43 @@ const plugin: Plugin = async ({ client }) => {
     waitOnRateLimitMs,
   }
 
+  // DB初期化
+  const db = initDatabase()
+  const persistentQueue = new PersistentQueue({ db })
+
   const sessionToThread = new Map<string, string>()
-  const pendingPostsBySession = new Map<string, DiscordExecuteWebhookBody[]>()
+
+  // ワーカー初期化（buildThreadNameは後で定義されるため、関数として渡す）
+  const queueWorker = new QueueWorker({
+    queue: persistentQueue,
+    postWebhook: postDiscordWebhook,
+    postDeps,
+    maybeAlertError,
+    webhookUrl: webhookUrl ?? '',
+    username,
+    avatarUrl,
+    buildThreadName: (sessionID: string) => buildThreadName(sessionID),
+    onThreadCreated: (sessionID: string, threadID: string) => {
+      sessionToThread.set(sessionID, threadID)
+    },
+  })
   const firstUserTextBySession = new Map<string, string>()
   const pendingTextPartsByMessageId = new Map<string, any[]>()
   const messageRoleById = new Map<string, 'user' | 'assistant'>()
+  /**
+   * セッション情報のキャッシュ
+   * - session.created時に保存
+   * - 初回ユーザーメッセージ時にsession.created embedの生成に使用
+   */
   const lastSessionInfo = new Map<
     string,
-    { title?: string; shareUrl?: string }
+    {
+      title?: string
+      shareUrl?: string
+      createdAt?: string
+      projectID?: string
+      directory?: string
+    }
   >()
 
   function normalizeThreadTitle(value: unknown): string {
@@ -651,7 +683,7 @@ const plugin: Plugin = async ({ client }) => {
 
   /**
    * セッションIDからスレッド名を生成
-   * 優先順位: ユーザーテキスト > セッションタイトル > セッションID > 'untitled'
+   * 優先順位: ユーザーテキスト > セッションタイトル > セッションID > '(untitled)'
    * Discord API制限: スレッド名最大100文字
    */
   function buildThreadName(sessionID: string): string {
@@ -670,54 +702,43 @@ const plugin: Plugin = async ({ client }) => {
     if (fromSessionId)
       return fromSessionId.slice(0, DISCORD_THREAD_NAME_MAX_LENGTH)
 
-    return 'untitled'
+    return '(untitled)'
   }
 
-  async function ensureThread(sessionID: string): Promise<string | undefined> {
-    if (!webhookUrl) return undefined
-    const existing = sessionToThread.get(sessionID)
-    if (existing) return existing
+  /**
+   * セッション開始通知のembedを生成
+   * - 初回ユーザーメッセージ時に呼び出される
+   * - lastSessionInfoから保存済みのセッション情報を取得して使用
+   *
+   * @param sessionID - セッションID
+   * @returns Discord embed（セッション情報が存在しない場合はundefined）
+   */
+  function buildSessionCreatedEmbed(
+    sessionID: string,
+  ): DiscordExecuteWebhookBody | undefined {
+    const info = lastSessionInfo.get(sessionID)
+    if (!info) return undefined
 
-    const queue = pendingPostsBySession.get(sessionID)
-    const first = queue?.[0]
-    if (!first) return undefined
-
-    const threadName = buildThreadName(sessionID)
-
-    const res = await postDiscordWebhook(
-      {
-        webhookUrl,
-        wait: true,
-        body: {
-          ...first,
-          thread_name: threadName,
-          username,
-          avatar_url: avatarUrl,
-        },
-      },
-      postDeps,
-    ).catch(async (e) => {
-      // On error, fallback to sending the first item to channel
-      await postDiscordWebhook(
-        { webhookUrl, body: { ...first, username, avatar_url: avatarUrl } },
-        postDeps,
-      ).catch(() => {})
-      return undefined
-    })
-
-    if (res?.channel_id) {
-      sessionToThread.set(sessionID, res.channel_id)
-      // remove first from queue if it still is head
-      const nextQueue = pendingPostsBySession.get(sessionID)
-      if (nextQueue?.[0] === first) {
-        nextQueue.shift()
-        if (nextQueue.length) pendingPostsBySession.set(sessionID, nextQueue)
-        else pendingPostsBySession.delete(sessionID)
-      }
-      return res.channel_id
+    const embed: DiscordEmbed = {
+      title: 'Session started',
+      description: info.title,
+      url: info.shareUrl,
+      color: COLORS.info,
+      timestamp: info.createdAt,
+      fields: buildFields(
+        filterSendFields(
+          [
+            ['sessionID', sessionID],
+            ['projectID', info.projectID],
+            ['directory', info.directory],
+            ['share', info.shareUrl],
+          ],
+          withForcedSendParams(sendParams, ['sessionID']),
+        ),
+      ),
     }
 
-    return undefined
+    return { embeds: [embed] }
   }
 
   function enqueueToThread(sessionID: string, body: DiscordExecuteWebhookBody) {
@@ -727,57 +748,18 @@ const plugin: Plugin = async ({ client }) => {
       return
     }
 
-    const queue = pendingPostsBySession.get(sessionID) ?? []
-    queue.push(body)
-    pendingPostsBySession.set(sessionID, queue)
+    const threadId = sessionToThread.get(sessionID) || null
+    persistentQueue.enqueue({
+      sessionId: sessionID,
+      threadId,
+      webhookBody: body,
+    })
   }
 
-  async function flushPending(sessionID: string): Promise<void> {
-    if (!webhookUrl) return
-    const threadId =
-      sessionToThread.get(sessionID) ?? (await ensureThread(sessionID))
-    const queue = pendingPostsBySession.get(sessionID)
-    if (!queue?.length) return
-
-    let sentCount = 0
-    try {
-      if (threadId) {
-        for (const body of queue) {
-          await postDiscordWebhook(
-            {
-              webhookUrl,
-              threadId,
-              body: { ...body, username, avatar_url: avatarUrl },
-            },
-            postDeps,
-          )
-          sentCount += 1
-        }
-      } else {
-        for (const body of queue) {
-          await postDiscordWebhook(
-            { webhookUrl, body: { ...body, username, avatar_url: avatarUrl } },
-            postDeps,
-          )
-          sentCount += 1
-        }
-      }
-
-      pendingPostsBySession.delete(sessionID)
-    } catch (e) {
-      const current = pendingPostsBySession.get(sessionID)
-      if (!current?.length) throw e
-      const rest = current.slice(sentCount)
-      if (rest.length) pendingPostsBySession.set(sessionID, rest)
-      else pendingPostsBySession.delete(sessionID)
-      throw e
+  function startWorkerIfNeeded() {
+    if (!queueWorker.running) {
+      void queueWorker.start()
     }
-  }
-
-  function shouldFlush(sessionID: string): boolean {
-    return (
-      sessionToThread.has(sessionID) || firstUserTextBySession.has(sessionID)
-    )
   }
 
   function buildCompleteMention():
@@ -824,9 +806,25 @@ const plugin: Plugin = async ({ client }) => {
       return
     }
 
-    if (role === 'user' && !firstUserTextBySession.has(sessionID)) {
+    // 初回ユーザーテキストを保存（スレッド名に使用）
+    const isFirstUserText =
+      role === 'user' && !firstUserTextBySession.has(sessionID)
+    if (isFirstUserText) {
       const normalized = normalizeThreadTitle(text)
       if (normalized) firstUserTextBySession.set(sessionID, normalized)
+    }
+
+    /**
+     * 初回ユーザーメッセージ時の処理（Option 3実装）
+     * - スレッドが未作成 かつ ユーザーメッセージの場合
+     * - session.created embedを先にenqueueしてからUser says embedをenqueue
+     * - これにより、スレッド作成時に正しいユーザーテキストがスレッド名に使用される
+     */
+    if (role === 'user' && !sessionToThread.has(sessionID)) {
+      const sessionCreatedBody = buildSessionCreatedEmbed(sessionID)
+      if (sessionCreatedBody) {
+        enqueueToThread(sessionID, sessionCreatedBody)
+      }
     }
 
     const embed: DiscordEmbed = {
@@ -851,11 +849,8 @@ const plugin: Plugin = async ({ client }) => {
 
     enqueueToThread(sessionID, { embeds: [embed] })
 
-    if (role === 'user') {
-      await flushPending(sessionID)
-    } else if (shouldFlush(sessionID)) {
-      await flushPending(sessionID)
-    }
+    // キューにメッセージを追加したので、ワーカーを起動して即座に処理開始
+    startWorkerIfNeeded()
   }
 
   return {
@@ -867,36 +862,25 @@ const plugin: Plugin = async ({ client }) => {
             const sessionID = info?.id as string | undefined
             if (!sessionID) return
 
-            const title = (info?.title as string | undefined) ?? '(untitled)'
-            const shareUrl = info?.share?.url as string | undefined
-            const createdAt = toIsoTimestamp(info?.time?.created)
+            // セッション情報を保存（初回ユーザーメッセージ時に使用）
+            lastSessionInfo.set(sessionID, {
+              title: info?.title as string | undefined,
+              shareUrl: info?.share?.url as string | undefined,
+              createdAt: toIsoTimestamp(info?.time?.created),
+              projectID: info?.projectID as string | undefined,
+              directory: info?.directory as string | undefined,
+            })
 
-            const embed: DiscordEmbed = {
-              title: 'Session started',
-              description: title,
-              url: shareUrl,
-              color: COLORS.info,
-              timestamp: createdAt,
-              fields: buildFields(
-                filterSendFields(
-                  [
-                    ['sessionID', sessionID],
-                    ['projectID', info?.projectID],
-                    ['directory', info?.directory],
-                    ['share', shareUrl],
-                  ],
-                  withForcedSendParams(sendParams, ['sessionID']),
-                ),
-              ),
-            }
-
-            lastSessionInfo.set(sessionID, { title, shareUrl })
-            enqueueToThread(sessionID, { embeds: [embed] })
-            // NOTE:
-            // 「状態更新イベント」であり会話の区切りではない。
-            // ここで flush すると、assistant 最終発言の flush と競合し
-            // Agent says が二重送信されるため、enqueue のみに留める。
-            // if (shouldFlush(sessionID)) await flushPending(sessionID)
+            // NOTE: Option 3実装
+            // session.created時はenqueueせず、初回ユーザーメッセージ時にenqueueする。
+            // 理由: ワーカーが別セッションで既に起動している場合、
+            // ユーザーテキストが来る前にsession.createdメッセージが処理され、
+            // スレッド名がユーザー発話ではなくセッションタイトルになってしまうため。
+            //
+            // 初回ユーザーメッセージ時の処理:
+            // 1. buildSessionCreatedEmbed()でsession.created embedを生成
+            // 2. User says embedの前にenqueue
+            // 3. ワーカー起動
             return
           }
 
@@ -947,11 +931,9 @@ const plugin: Plugin = async ({ client }) => {
               },
               postDeps,
             )
-            // NOTE:
-            // 「状態更新イベント」であり会話の区切りではない。
-            // ここで flush すると、assistant 最終発言の flush と競合し
-            // Agent says が二重送信されるため、enqueue のみに留める。
-            // if (shouldFlush(sessionID)) await flushPending(sessionID)
+
+            // キューにメッセージを追加したので、ワーカーを起動して即座に処理開始
+            startWorkerIfNeeded()
             return
           }
 
@@ -994,11 +976,9 @@ const plugin: Plugin = async ({ client }) => {
               },
               postDeps,
             )
-            // NOTE:
-            // 「状態更新イベント」であり会話の区切りではない。
-            // ここで flush すると、assistant 最終発言の flush と競合し
-            // Agent says が二重送信されるため、enqueue のみに留める。
-            // await flushPending(sessionID)
+
+            // キューにメッセージを追加したので、ワーカーを起動して即座に処理開始
+            startWorkerIfNeeded()
             return
           }
 
@@ -1056,7 +1036,9 @@ const plugin: Plugin = async ({ client }) => {
               postDeps,
             )
 
-            await flushPending(sessionID)
+            // session.errorでもワーカーを起動（旧実装のflushPendingに相当）
+            startWorkerIfNeeded()
+
             return
           }
 
@@ -1075,11 +1057,9 @@ const plugin: Plugin = async ({ client }) => {
             }
 
             enqueueToThread(sessionID, { embeds: [embed] })
-            // NOTE:
-            // 「状態更新イベント」であり会話の区切りではない。
-            // ここで flush すると、assistant 最終発言の flush と競合し
-            // Agent says が二重送信されるため、enqueue のみに留める。
-            // if (shouldFlush(sessionID)) await flushPending(sessionID)
+
+            // キューにメッセージを追加したので、ワーカーを起動して即座に処理開始
+            startWorkerIfNeeded()
             return
           }
 
@@ -1148,6 +1128,10 @@ const plugin: Plugin = async ({ client }) => {
       } catch {
         // noop
       }
+    },
+    __test__: {
+      queueWorker,
+      persistentQueue,
     },
   }
 }

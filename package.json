@@ -1,6 +1,6 @@
 {
   "name": "opencode-discord-notify",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "A plugin that posts OpenCode events to a Discord webhook.",
   "license": "MIT",
   "type": "module",
@@ -25,9 +25,9 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts --out-dir dist --clean",
+    "build": "tsup src/index.ts --format esm --dts --out-dir dist --clean --external bun:sqlite",
     "format": "prettier . --write",
-    "test": "vitest run",
+    "test": "bun test",
     "prepublishOnly": "npm run build"
   },
   "peerDependencies": {
