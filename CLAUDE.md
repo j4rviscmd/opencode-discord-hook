@@ -9,27 +9,32 @@ This is an OpenCode plugin that sends real-time notifications to Discord via web
 ## Development Commands
 
 ### Setup
+
 ```bash
 npm install
 ```
 
 ### Testing
+
 ```bash
 npm test                    # Run all tests (uses Bun)
 bun test src/index.test.ts  # Run specific test file
 ```
 
 ### Building
+
 ```bash
 npm run build              # Build with tsup (outputs to dist/)
 ```
 
 ### Formatting
+
 ```bash
 npm run format             # Format code with Prettier
 ```
 
 ### Publishing
+
 ```bash
 npm run prepublishOnly     # Automatically runs build before publish
 ```
@@ -66,12 +71,14 @@ The plugin uses a **persistent queue** architecture to ensure reliable message d
 ### Thread Creation & Naming
 
 **Thread Naming Priority** (max 100 chars):
+
 1. First user text message from session
 2. Session title from `session.created` event
 3. `session <sessionID>`
 4. `"(untitled)"`
 
 **Thread Creation Flow**:
+
 - `session.created` event is cached but NOT immediately sent
 - First user message triggers: session.created embed → user message embed
 - Worker creates Discord thread with `thread_name` on first message
@@ -142,7 +149,7 @@ All configuration is via environment variables. Key ones:
 
 ## Code Organization
 
-```
+```text
 src/
 ├── index.ts              # Main plugin export, event handlers, Discord logic
 ├── queue/
@@ -158,6 +165,7 @@ src/
 ### Why Option 3 for session.created
 
 The codebase uses "Option 3" for `session.created` event handling:
+
 - Event is cached but NOT enqueued immediately
 - Enqueued only when first user message arrives
 - Prevents race condition where worker processes session.created before user text is available
@@ -181,6 +189,7 @@ Uses `sentTextPartIds` Set to track sent part IDs and prevent duplicate messages
 ## Version Bumping
 
 When releasing new features, bump version in `package.json`. Follow semantic versioning:
+
 - Patch (0.7.x → 0.7.y): Bug fixes
 - Minor (0.7.x → 0.8.0): New features (backward compatible)
 - Major (0.x.y → 1.0.0): Breaking changes
