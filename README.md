@@ -1,9 +1,8 @@
 # OPENCODE-DISCORD-NOTIFY
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![npm version](https://img.shields.io/npm/v/opencode-discord-notify?logo=npm&logoColor=fff)](https://www.npmjs.com/package/opencode-discord-notify)
-[![npm downloads](https://img.shields.io/npm/dt/opencode-discord-notify?logo=npm&logoColor=fff)](https://www.npmjs.com/package/opencode-discord-notify)
 [![npm license](https://img.shields.io/npm/l/opencode-discord-notify?logo=npm&logoColor=fff)](https://www.npmjs.com/package/opencode-discord-notify)
+[![npm downloads](https://img.shields.io/npm/dt/opencode-discord-notify?logo=npm&logoColor=fff)](https://www.npmjs.com/package/opencode-discord-notify)
+[![npm version](https://img.shields.io/npm/v/opencode-discord-notify?logo=npm&logoColor=fff)](https://www.npmjs.com/package/opencode-discord-notify)
 ![OpenCode Plugin](https://img.shields.io/badge/OpenCode-Plugin-4c8bf5)
 ![Discord Webhook](https://img.shields.io/badge/Discord-Webhook-5865F2?logo=discord&logoColor=fff)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=fff)
